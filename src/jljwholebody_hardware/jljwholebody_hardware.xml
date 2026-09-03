@@ -1,0 +1,10 @@
+<library path="jljwholebody_hardware">
+  <class
+    name="jljwholebody_hardware/JljWholebodySystem"
+    type="jljwholebody_hardware::JljWholebodySystem"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>
+      ros2_control system interface backed by Damiao motor SocketCAN communication.
+    </description>
+  </class>
+</library>

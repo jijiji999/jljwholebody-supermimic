@@ -1,0 +1,155 @@
+deployment:
+  motor_config_path: ""
+  parallel_mechanisms_path: ""
+  error_log_path: "~/.jljwholebody/deploy_errors.log"
+
+  topics:
+    joy: "/joy"
+    imu: "/imu/data"
+    joint_states: "/deploy/joint_states"
+    projected_gravity: "/deploy/projected_gravity"
+    angular_velocity: "/deploy/base_ang_vel"
+    mode: "/deploy/mode"
+    errors: "/deploy/errors"
+    status: "/deploy/status"
+
+  loop:
+    control_rate_hz: 500.0
+    policy_rate_hz: 50.0
+    state_publish_rate_hz: 100.0
+    startup_state_timeout_s: 3.0
+    joy_timeout_s: 0.5
+    imu_timeout_s: 0.2
+    feedback_poll_timeout_ms: 0
+    command_timeout_ms: 0
+    max_motor_feedback_age_s: 0.03
+    max_tilt_deg: 50.0
+    lifecycle_timeout_ms: 100
+    enable_on_start: true
+    disable_on_exit: true
+
+  # SCHED_FIFO and mlockall failures are warnings unless strict is enabled. Configure
+  # rtprio/memlock limits on the robot controller before enabling strict mode.
+  realtime:
+    enabled: true
+    strict: false
+    lock_memory: true
+    control_priority: 45
+    policy_priority: 35
+    control_cpu: -1
+    policy_cpu: -2  # Last online CPU; use -1 to disable affinity.
+
+  imu_mount:
+    roll_offset_deg: 0.0
+    pitch_offset_deg: 0.0
+    yaw_offset_deg: 0.0
+
+  imu_filter:
+    enabled:  true
+    cutoff_hz: 20.0
+    reset_timeout_s: 0.1
+
+  # The selected profile supplies logical parallel-joint Kp/Kd used to form
+  # pitch/roll torque. Motor commands use MIT feedforward torque with Kp=Kd=0.
+  parallel_control: {}
+
+  joystick:
+    mode_switch:
+      a_button_index: 0
+      lb_button_index: 4
+      rb_button_index: 5
+      lt_axis_index: 4
+      lt_pressed_threshold: 0.5
+    command:
+      lin_x_axis_index: 1
+      lin_x_sign: -1.0
+      lin_x_scale: 1.0
+      lin_y_axis_index: 0
+      lin_y_sign: -1.0
+      lin_y_scale: 1.0
+      yaw_axis_index: 2
+      yaw_sign: -1.0
+      yaw_scale: 0.7
+
+  modes:
+    startup_mode: "passive"
+    passive:
+      direct_kp: 2.0
+      direct_kd: 0.2
+      ankle_kp: 2.0
+      ankle_kd: 0.2
+      follow_feedback_target: true
+    fixed:
+      direct_kp: -1.0
+      direct_kd: -1.0
+      ankle_kp: -1.0
+      ankle_kd: -1.0
+      transition_duration_s: 5.0
+      # Fixed-mode motor-space gains are deployment parameters, independent of
+      # the selected policy profile. Direct joints use these values directly;
+      # parallel pitch/roll joints inverse-solve to motor angles before applying them.
+      motor_gains:
+        left_hip_pitch:
+          kp: 400.0
+          kd: 2.0
+        left_hip_roll:
+          kp: 400.0
+          kd: 2.0
+        left_hip_yaw:
+          kp: 400.0
+          kd: 2.0
+        left_knee:
+          kp: 400.0
+          kd: 1.0
+        left_ankle_parallel_1:
+          kp: 400.0
+          kd: 2.5
+        left_ankle_parallel_2:
+          kp: 400.0
+          kd: 2.5
+        right_hip_pitch:
+          kp: 400.0
+          kd: 2.0
+        right_hip_roll:
+          kp: 400.0
+          kd: 2.0
+        right_hip_yaw:
+          kp: 400.0
+          kd: 2.0
+        right_knee:
+          kp: 400.0
+          kd: 1.0
+        right_ankle_parallel_1:
+          kp: 400.0
+          kd: 2.5
+        right_ankle_parallel_2:
+          kp: 400.0
+          kd: 2.5
+        waist_motor1:
+          kp: 400.0
+          kd: 2.5
+        waist_motor2:
+          kp: 400.0
+          kd: 2.5
+        waistyaw:
+          kp: 400.0
+          kd: 2.5
+      hold_current_pose_on_entry: false
+    loco:
+      direct_kp: -1.0
+      direct_kd: -1.0
+      ankle_kp: -1.0
+      ankle_kd: -1.0
+      hold_current_pose_on_entry: false
+
+  policy:
+    backend: "onnx"
+    inference_threads: 1
+    # Generated from the exact whole-body training run; the profile is the
+    # authoritative 490-observation/29-action contract.
+    profile_path: "policies/active.yaml"
+    expected_observation_dim: 490
+    expected_action_dim: 29
+    raw_action_clip: 5.0
+    takeover_duration_s: 0.05
+    shadow_mode: false

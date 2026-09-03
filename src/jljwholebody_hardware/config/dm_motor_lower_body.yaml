@@ -1,0 +1,141 @@
+interfaces:
+  - name: vcan2
+    use_can_fd: true
+    bitrate_switch: true
+  - name: vcan3
+    use_can_fd: true
+    bitrate_switch: true
+
+defaults:
+  model: unknown
+  master_id: 0x10
+
+motors:
+  - name: left_hip_pitch
+    interface: vcan2
+    can_id: 0x01
+    master_id: 0x11
+    model: "10010"
+    notes: left_leg
+    default_kp: 80   
+    default_kd: 2.0   #5
+    upper_position_limit: 2.466
+    lower_position_limit: -2.384
+    max_output_torque: 80
+    max_output_speed: 12.0
+  - name: left_hip_roll
+    interface: vcan2
+    can_id: 0x02
+    master_id: 0x12
+    model: "10010"
+    notes: left_leg
+    default_kp: 50        #200
+    default_kd: 5.0            #5
+    upper_position_limit: 2.465
+    lower_position_limit: -1.165
+    max_output_torque: 45
+    max_output_speed: 12.0
+  - name: left_hip_yaw
+    interface: vcan2
+    can_id: 0x03
+    master_id: 0x13
+    model: "10010"
+    notes: left_leg
+    default_kp: 50
+    default_kd: 3
+    upper_position_limit: 1.5
+    lower_position_limit: -1.5
+    max_output_torque: 45
+    max_output_speed: 12
+  - name: left_knee
+    interface: vcan2
+    can_id: 0x04
+    master_id: 0x14
+    model: "10010"
+    notes: left_leg
+    default_kp: 100   #150
+    default_kd: 3            #5
+    upper_position_limit: 1.977
+    lower_position_limit: -1.669
+    max_output_torque: 80
+    max_output_speed: 12
+  - name: left_ankle_parallel_1
+    interface: vcan2
+    can_id: 0x05
+    master_id: 0x15
+    model: "4340"
+    notes: left_leg
+    default_kp: 0
+    default_kd: 0
+  - name: left_ankle_parallel_2
+    interface: vcan2
+    can_id: 0x06
+    master_id: 0x16
+    model: "4340"
+    notes: left_leg
+    default_kp: 0
+    default_kd: 0
+  - name: right_hip_pitch
+    interface: vcan3
+    can_id: 0x01
+    master_id: 0x11
+    model: "10010"
+    notes: right_leg
+    default_kp: 80
+    default_kd: 2
+    upper_position_limit: 2.840
+    lower_position_limit: -1.175
+    max_output_torque: 80.0
+    max_output_speed: 12.0
+  - name: right_hip_roll
+    interface: vcan3
+    can_id: 0x02
+    master_id: 0x12
+    model: "10010"
+    notes: right_leg
+    default_kp: 50
+    default_kd: 5
+    upper_position_limit: 1.043
+    lower_position_limit: -2.506
+    max_output_torque: 45.0
+    max_output_speed: 12.0
+  - name: right_hip_yaw
+    interface: vcan3
+    can_id: 0x03
+    master_id: 0x13
+    model: "10010"
+    notes: right_leg
+    default_kp: 50
+    default_kd: 3
+    upper_position_limit: 1.5
+    lower_position_limit: -1.5
+    max_output_torque: 45.0
+    max_output_speed: 12.0
+  - name: right_knee
+    interface: vcan3
+    can_id: 0x04
+    master_id: 0x14
+    model: "10010"
+    notes: right_leg
+    default_kp: 100
+    default_kd: 3
+    upper_position_limit: 1.984
+    lower_position_limit: -2.006
+    max_output_torque: 80.0
+    max_output_speed: 12.0
+  - name: right_ankle_parallel_1
+    interface: vcan3
+    can_id: 0x05
+    master_id: 0x15
+    model: "4340"
+    notes: right_leg
+    default_kp: 0
+    default_kd: 0
+  - name: right_ankle_parallel_2
+    interface: vcan3
+    can_id: 0x06
+    master_id: 0x16
+    model: "4340"
+    notes: right_leg
+    default_kp: 0
+    default_kd: 0

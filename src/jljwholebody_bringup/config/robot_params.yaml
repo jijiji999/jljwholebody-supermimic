@@ -1,0 +1,11 @@
+robot_state_publisher:
+  ros__parameters:
+    publish_frequency: 50.0
+    use_sim_time: false
+
+jljwholebody:
+  ros__parameters:
+    control_rate_hz: 250
+    startup_pose: stand
+    enable_torque_on_startup: false
+    require_estop_clear: true

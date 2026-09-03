@@ -1,0 +1,21 @@
+mechanisms:
+  - name: left_ankle
+    pitch_joint: left_ankle_pitch
+    roll_joint: left_ankle_roll
+    # theta1 -> CAN2 ID 6; theta2 -> CAN2 ID 5
+    motor_1: left_ankle_parallel_2
+    motor_2: left_ankle_parallel_1
+    config_path: parallel/left_ankle.yaml
+  - name: right_ankle
+    pitch_joint: right_ankle_pitch
+    roll_joint: right_ankle_roll
+    # theta1 -> CAN3 ID 6; theta2 -> CAN3 ID 5
+    motor_1: right_ankle_parallel_2
+    motor_2: right_ankle_parallel_1
+    config_path: parallel/right_ankle.yaml
+  - name: waist
+    pitch_joint: waist_pitch
+    roll_joint: waist_roll
+    motor_1: waist_motor1
+    motor_2: waist_motor2
+    config_path: waist/waist.yaml

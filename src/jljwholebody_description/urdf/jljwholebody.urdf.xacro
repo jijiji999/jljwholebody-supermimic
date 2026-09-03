@@ -1,0 +1,557 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="jljwholebody">
+  <xacro:arg name="use_mock_hardware" default="true"/>
+  <xacro:arg name="hardware_plugin" default="jljwholebody_hardware/JljWholebodySystem"/>
+  <xacro:arg name="motor_config_path" default=""/>
+  <xacro:arg name="parallel_mechanisms_path" default=""/>
+  <xacro:arg name="enable_on_activate" default="false"/>
+  <xacro:arg name="disable_on_deactivate" default="true"/>
+  <xacro:arg name="command_timeout_ms" default="0"/>
+  <xacro:arg name="feedback_poll_timeout_ms" default="0"/>
+  <xacro:arg name="lifecycle_timeout_ms" default="500"/>
+  <xacro:arg name="startup_feedback_warmup_s" default="0.5"/>
+  <xacro:arg name="enable_retries" default="3"/>
+  <xacro:arg name="enable_retry_interval_ms" default="200"/>
+
+  <xacro:property
+    name="mesh_dir"
+    value="package://jljwholebody_description/meshes/lowbody"/>
+
+  <material name="jlj_silver">
+    <color rgba="0.898 0.9176 0.9294 1.0"/>
+  </material>
+
+  <xacro:macro
+    name="mesh_link"
+    params="name mesh mass com_xyz ixx ixy ixz iyy iyz izz">
+    <link name="${name}">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="${mesh_dir}/${mesh}"/>
+        </geometry>
+        <material name="jlj_silver"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="${mesh_dir}/${mesh}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <origin xyz="${com_xyz}" rpy="0 0 0"/>
+        <mass value="${mass}"/>
+        <inertia
+          ixx="${ixx}"
+          ixy="${ixy}"
+          ixz="${ixz}"
+          iyy="${iyy}"
+          iyz="${iyz}"
+          izz="${izz}"/>
+      </inertial>
+    </link>
+  </xacro:macro>
+
+  <xacro:macro name="controlled_joint" params="name lower upper motor_name">
+    <joint name="${name}">
+      <param name="motor_name">${motor_name}</param>
+      <command_interface name="position">
+        <param name="min">${lower}</param>
+        <param name="max">${upper}</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="simple_mesh_link" params="name mesh mass:=0.1">
+    <link name="${name}">
+      <visual>
+        <geometry><mesh filename="${mesh_dir}/${mesh}"/></geometry>
+        <material name="jlj_silver"/>
+      </visual>
+      <collision>
+        <geometry><mesh filename="${mesh_dir}/${mesh}"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="${mass}"/>
+        <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+      </inertial>
+    </link>
+  </xacro:macro>
+
+  <!-- Lower-body geometry is retained from the validated deployment model;
+       upper-body geometry and joints below mirror the whole-body MJCF task. -->
+  <xacro:mesh_link
+    name="base_link"
+    mesh="base_link.STL"
+    mass="6.4215738"
+    com_xyz="-0.0009132 0.000016 -0.0779084"
+    ixx="0.0186218"
+    ixy="-0.0000004"
+    ixz="-0.0000523"
+    iyy="0.0112883"
+    iyz="-0.0000001"
+    izz="0.0157697"/>
+
+  <xacro:mesh_link
+    name="waist_yaw_link"
+    mesh="waist_yaw_link.STL"
+    mass="0.9641464"
+    com_xyz="-0.0259888 0 0.0360763"
+    ixx="0.0005716"
+    ixy="0"
+    ixz="0.0000066"
+    iyy="0.0006786"
+    iyz="0"
+    izz="0.001122"/>
+  <joint name="waist_yaw" type="revolute">
+    <parent link="base_link"/>
+    <child link="waist_yaw_link"/>
+    <origin xyz="0 0 0.007" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.57" upper="1.57" effort="80.0" velocity="4.0"/>
+  </joint>
+
+  <xacro:mesh_link
+    name="waist_roll_link"
+    mesh="waist_roll_link.STL"
+    mass="0.0365367"
+    com_xyz="0.0269999 0 -0.0000001"
+    ixx="0.0000058"
+    ixy="0"
+    ixz="0"
+    iyy="0.0000043"
+    iyz="0"
+    izz="0.0000088"/>
+  <joint name="waist_roll" type="revolute">
+    <parent link="waist_yaw_link"/>
+    <child link="waist_roll_link"/>
+    <origin xyz="-0.027 0 0.062" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.2" upper="0.2" effort="80.0" velocity="4.0"/>
+  </joint>
+
+  <xacro:mesh_link
+    name="waist_pitch_link"
+    mesh="waist_pitch.STL"
+    mass="10.8803064"
+    com_xyz="-0.0005949 0.2159513 -0.0195872"
+    ixx="0.22480921"
+    ixy="-0.00238925"
+    ixz="0.00003041"
+    iyy="0.0702677"
+    iyz="0.00043961"
+    izz="0.18860673"/>
+  <joint name="waist_pitch" type="revolute">
+    <parent link="waist_roll_link"/>
+    <child link="waist_pitch_link"/>
+    <origin xyz="-0.02 0 0.017" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.5" upper="0.5" effort="80.0" velocity="4.0"/>
+  </joint>
+
+  <link name="imu_link"/>
+  <joint name="base_to_imu" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="-0.01 0 -0.09" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:mesh_link
+    name="left_hip_pitch_link"
+    mesh="left_hip_pitch_link.STL"
+    mass="2.0704946"
+    com_xyz="0.0035805 0.0540167 -0.053752"
+    ixx="0.003699"
+    ixy="-0.0000151"
+    ixz="0.0000149"
+    iyy="0.0023631"
+    iyz="-0.0004567"
+    izz="0.0023682"/>
+  <joint name="left_hip_pitch" type="revolute">
+    <parent link="base_link"/>
+    <child link="left_hip_pitch_link"/>
+    <origin xyz="0 0.088214 -0.12639" rpy="0 0 0"/>
+    <axis xyz="0 0.70711 -0.70711"/>
+    <limit lower="-2.384" upper="2.466" effort="140.0" velocity="5.0"/>
+  </joint>
+
+  <xacro:mesh_link
+    name="left_hip_roll_link"
+    mesh="left_hip_roll_link.STL"
+    mass="0.4695347"
+    com_xyz="0.0017332 -0.0000073 -0.052578"
+    ixx="0.0010247"
+    ixy="0"
+    ixz="-0.0001714"
+    iyy="0.0010028"
+    iyz="-0.0000001"
+    izz="0.0003931"/>
+  <joint name="left_hip_roll" type="revolute">
+    <parent link="left_hip_pitch_link"/>
+    <child link="left_hip_roll_link"/>
+    <origin xyz="0.027 0.055861 -0.055861" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-1.165" upper="2.465" effort="100.0" velocity="4.0"/>
+  </joint>
+
+  <xacro:mesh_link
+    name="left_hip_yaw_link"
+    mesh="left_hip_yaw_link.STL"
+    mass="4.8993124"
+    com_xyz="0.0000384 0.0106394 -0.1631784"
+    ixx="0.0057826"
+    ixy="-0.0000083"
+    ixz="0.000007"
+    iyy="0.0097895"
+    iyz="-0.0001901"
+    izz="0.0088616"/>
+  <joint name="left_hip_yaw" type="revolute">
+    <parent link="left_hip_roll_link"/>
+    <child link="left_hip_yaw_link"/>
+    <origin xyz="-0.015 0 -0.105" rpy="0 0 0"/>
+    <axis xyz="0 0 -1"/>
+    <limit lower="-1.50" upper="1.50" effort="80.0" velocity="4.0"/>
+  </joint>
+
+  <xacro:mesh_link
+    name="left_knee_link"
+    mesh="left_knee_link.STL"
+    mass="2.0978379"
+    com_xyz="0.0047746 0.0104878 -0.1607825"
+    ixx="0.0084628"
+    ixy="0.000008"
+    ixz="0.0000303"
+    iyy="0.0083387"
+    iyz="0.0014205"
+    izz="0.0014631"/>
+  <joint name="left_knee" type="revolute">
+    <parent link="left_hip_yaw_link"/>
+    <child link="left_knee_link"/>
+    <origin xyz="0 -0.012 -0.301" rpy="0 0 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="-1.699" upper="1.997" effort="140.0" velocity="5.0"/>
+  </joint>
+
+  <xacro:mesh_link
+    name="left_ankle_pitch_link"
+    mesh="left_ankle_pitch_link.STL"
+    mass="0.0365367"
+    com_xyz="-0.0000001 0.0257 0.0000001"
+    ixx="0.0000058"
+    ixy="0"
+    ixz="-0.0000001"
+    iyy="0.0000043"
+    iyz="0"
+    izz="0.0000088"/>
+  <joint name="left_ankle_pitch" type="revolute">
+    <parent link="left_knee_link"/>
+    <child link="left_ankle_pitch_link"/>
+    <origin xyz="0.007722 -0.0037 -0.42591" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.5" upper="0.3" effort="80.0" velocity="4.0"/>
+  </joint>
+
+  <xacro:mesh_link
+    name="left_ankle_roll_link"
+    mesh="left_ankle_roll_link.STL"
+    mass="0.6753837"
+    com_xyz="-0.0114404 0.0000497 -0.0253569"
+    ixx="0.0002449"
+    ixy="0.0000064"
+    ixz="-0.0000551"
+    iyy="0.002171"
+    iyz="0.0000002"
+    izz="0.0023523"/>
+  <joint name="left_ankle_roll" type="revolute">
+    <parent link="left_ankle_pitch_link"/>
+    <child link="left_ankle_roll_link"/>
+    <origin xyz="0.023992 0.0257 0.0006035" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.2" upper="0.2" effort="80.0" velocity="4.0"/>
+  </joint>
+
+  <xacro:mesh_link
+    name="right_hip_pitch_link"
+    mesh="right_hip_pitch_link.STL"
+    mass="2.0699965"
+    com_xyz="0.003577 -0.0589637 -0.0587112"
+    ixx="0.0036971"
+    ixy="0.0000153"
+    ixz="0.0000148"
+    iyy="0.0023675"
+    iyz="0.0004558"
+    izz="0.0023618"/>
+  <joint name="right_hip_pitch" type="revolute">
+    <parent link="base_link"/>
+    <child link="right_hip_pitch_link"/>
+    <origin xyz="0 -0.083263 -0.12144" rpy="0 0 0"/>
+    <axis xyz="0 -0.70711 -0.70711"/>
+    <limit lower="-1.175" upper="2.84" effort="140.0" velocity="5.0"/>
+  </joint>
+
+  <xacro:mesh_link
+    name="right_hip_roll_link"
+    mesh="right_hip_roll_link.STL"
+    mass="0.4695347"
+    com_xyz="0.0087332 -0.0000069 -0.052579"
+    ixx="0.0010247"
+    ixy="0"
+    ixz="-0.0001714"
+    iyy="0.0010028"
+    iyz="-0.0000001"
+    izz="0.0003931"/>
+  <joint name="right_hip_roll" type="revolute">
+    <parent link="right_hip_pitch_link"/>
+    <child link="right_hip_roll_link"/>
+    <origin xyz="0.02 -0.060812 -0.06081" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-2.506" upper="1.043" effort="100.0" velocity="4.0"/>
+  </joint>
+
+  <xacro:mesh_link
+    name="right_hip_yaw_link"
+    mesh="right_hip_yaw_link.STL"
+    mass="4.8951529"
+    com_xyz="-0.0000385 -0.0106489 -0.1642971"
+    ixx="0.0057824"
+    ixy="-0.0000083"
+    ixz="-0.000007"
+    iyy="0.0097895"
+    iyz="0.0001901"
+    izz="0.0088615"/>
+  <joint name="right_hip_yaw" type="revolute">
+    <parent link="right_hip_roll_link"/>
+    <child link="right_hip_yaw_link"/>
+    <origin xyz="-0.008 0 -0.104" rpy="0 0 0"/>
+    <axis xyz="0 0 -1"/>
+    <limit lower="-1.50" upper="1.50" effort="80.0" velocity="4.0"/>
+  </joint>
+
+  <xacro:mesh_link
+    name="right_knee_link"
+    mesh="right_knee_link.STL"
+    mass="2.1310136"
+    com_xyz="0.0022851 -0.0042143 -0.1581595"
+    ixx="0.0086276"
+    ixy="-0.0000292"
+    ixz="-0.0000626"
+    iyy="0.0085109"
+    iyz="-0.001453"
+    izz="0.0014881"/>
+  <joint name="right_knee" type="revolute">
+    <parent link="right_hip_yaw_link"/>
+    <child link="right_knee_link"/>
+    <origin xyz="0 0.0062 -0.30201" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-2.0056" upper="1.9842" effort="140.0" velocity="5.0"/>
+  </joint>
+
+  <xacro:mesh_link
+    name="right_ankle_pitch_link"
+    mesh="right_ankle_pitch_link.STL"
+    mass="0.0365367"
+    com_xyz="0.0000001 0.0257 0.0000001"
+    ixx="0.0000058"
+    ixy="0"
+    ixz="0"
+    iyy="0.0000043"
+    iyz="0"
+    izz="0.0000088"/>
+  <joint name="right_ankle_pitch" type="revolute">
+    <parent link="right_knee_link"/>
+    <child link="right_ankle_pitch_link"/>
+    <origin xyz="0.0030006 -0.0419 -0.42596" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.5" upper="0.3" effort="80.0" velocity="4.0"/>
+  </joint>
+
+  <xacro:mesh_link
+    name="right_ankle_roll_link"
+    mesh="right_ankle_roll_link.STL"
+    mass="0.6758881"
+    com_xyz="-0.01299 -0.0000665 -0.0250404"
+    ixx="0.0002437"
+    ixy="-0.0000064"
+    ixz="-0.0000021"
+    iyy="0.0021644"
+    iyz="0"
+    izz="0.0023471"/>
+  <joint name="right_ankle_roll" type="revolute">
+    <parent link="right_ankle_pitch_link"/>
+    <child link="right_ankle_roll_link"/>
+    <origin xyz="0.024 0.0257 0" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.2" upper="0.2" effort="80.0" velocity="4.0"/>
+  </joint>
+
+  <!-- Upper body follows the whole-body training joint names and order. -->
+  <xacro:simple_mesh_link name="left_shoulder_pitch_link" mesh="left_shoulder_pitch.STL" mass="0.46"/>
+  <joint name="left_shoulder_pitch" type="revolute">
+    <parent link="waist_pitch_link"/>
+    <child link="left_shoulder_pitch_link"/>
+    <origin xyz="0 0.345 0.10" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3.42" upper="1.46" effort="54.0" velocity="8.0"/>
+  </joint>
+  <xacro:simple_mesh_link name="left_shoulder_roll_link" mesh="left_shoulder_roll.STL" mass="0.21"/>
+  <joint name="left_shoulder_roll" type="revolute">
+    <parent link="left_shoulder_pitch_link"/>
+    <child link="left_shoulder_roll_link"/>
+    <origin xyz="0 -0.029 0.06" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-3.14" upper="0.16" effort="54.0" velocity="8.0"/>
+  </joint>
+  <xacro:simple_mesh_link name="left_shoulder_yaw_link" mesh="left_shoulder_yaw.STL" mass="0.23"/>
+  <joint name="left_shoulder_yaw" type="revolute">
+    <parent link="left_shoulder_roll_link"/>
+    <child link="left_shoulder_yaw_link"/>
+    <origin xyz="0 0.066 -0.03" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.669" upper="1.499" effort="28.0" velocity="8.0"/>
+  </joint>
+  <xacro:simple_mesh_link name="left_elbow_link" mesh="left_elbow.STL" mass="0.18"/>
+  <joint name="left_elbow" type="revolute">
+    <parent link="left_shoulder_yaw_link"/>
+    <child link="left_elbow_link"/>
+    <origin xyz="0.031 0 -0.154" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.44" upper="0.99" effort="28.0" velocity="10.0"/>
+  </joint>
+  <xacro:simple_mesh_link name="left_wrist_yaw_link" mesh="left_wrist_yaw.STL" mass="0.18"/>
+  <joint name="left_wrist_yaw" type="revolute">
+    <parent link="left_elbow_link"/>
+    <child link="left_wrist_yaw_link"/>
+    <origin xyz="0.022 0.093 -0.032" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.453" upper="1.691" effort="10.0" velocity="12.0"/>
+  </joint>
+  <xacro:simple_mesh_link name="left_wrist_roll_link" mesh="left_wrist_roll.STL" mass="0.13"/>
+  <joint name="left_wrist_roll" type="revolute">
+    <parent link="left_wrist_yaw_link"/>
+    <child link="left_wrist_roll_link"/>
+    <origin xyz="-0.017 0.029 0.121" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-1.739" upper="1.404" effort="10.0" velocity="12.0"/>
+  </joint>
+  <xacro:simple_mesh_link name="left_wrist_pitch_link" mesh="left_wrist_pitch.STL" mass="0.16"/>
+  <joint name="left_wrist_pitch" type="revolute">
+    <parent link="left_wrist_roll_link"/>
+    <child link="left_wrist_pitch_link"/>
+    <origin xyz="0.02 0.005 0.034" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.862" upper="0.709" effort="10.0" velocity="12.0"/>
+  </joint>
+
+  <xacro:simple_mesh_link name="right_shoulder_pitch_link" mesh="right_shoulder_pitch.STL" mass="0.46"/>
+  <joint name="right_shoulder_pitch" type="revolute">
+    <parent link="waist_pitch_link"/>
+    <child link="right_shoulder_pitch_link"/>
+    <origin xyz="0 -0.345 0.10" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.374" upper="3.488" effort="54.0" velocity="8.0"/>
+  </joint>
+  <xacro:simple_mesh_link name="right_shoulder_roll_link" mesh="right_shoulder_roll.STL" mass="0.21"/>
+  <joint name="right_shoulder_roll" type="revolute">
+    <parent link="right_shoulder_pitch_link"/>
+    <child link="right_shoulder_roll_link"/>
+    <origin xyz="0 0.029 0.06" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.223" upper="3.172" effort="54.0" velocity="8.0"/>
+  </joint>
+  <xacro:simple_mesh_link name="right_shoulder_yaw_link" mesh="right_shoulder_yaw.STL" mass="0.23"/>
+  <joint name="right_shoulder_yaw" type="revolute">
+    <parent link="right_shoulder_roll_link"/>
+    <child link="right_shoulder_yaw_link"/>
+    <origin xyz="0 -0.066 -0.03" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.594" upper="1.547" effort="28.0" velocity="8.0"/>
+  </joint>
+  <xacro:simple_mesh_link name="right_elbow_link" mesh="right_elbow.STL" mass="0.18"/>
+  <joint name="right_elbow" type="revolute">
+    <parent link="right_shoulder_yaw_link"/>
+    <child link="right_elbow_link"/>
+    <origin xyz="0.031 0 -0.154" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.542" upper="0.992" effort="28.0" velocity="10.0"/>
+  </joint>
+  <xacro:simple_mesh_link name="right_wrist_yaw_link" mesh="right_wrist_yaw.STL" mass="0.18"/>
+  <joint name="right_wrist_yaw" type="revolute">
+    <parent link="right_elbow_link"/>
+    <child link="right_wrist_yaw_link"/>
+    <origin xyz="-0.018 0.094 -0.032" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.808" upper="1.328" effort="10.0" velocity="12.0"/>
+  </joint>
+  <xacro:simple_mesh_link name="right_wrist_roll_link" mesh="right_wrist_roll.STL" mass="0.13"/>
+  <joint name="right_wrist_roll" type="revolute">
+    <parent link="right_wrist_yaw_link"/>
+    <child link="right_wrist_roll_link"/>
+    <origin xyz="0.025 -0.022 0.121" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-1.573" upper="1.563" effort="10.0" velocity="12.0"/>
+  </joint>
+  <xacro:simple_mesh_link name="right_wrist_pitch_link" mesh="right_wrist_pitch.STL" mass="0.16"/>
+  <joint name="right_wrist_pitch" type="revolute">
+    <parent link="right_wrist_roll_link"/>
+    <child link="right_wrist_pitch_link"/>
+    <origin xyz="-0.02 0.003 0.034" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.628" upper="0.947" effort="10.0" velocity="12.0"/>
+  </joint>
+
+  <ros2_control name="JljWholebodySystem" type="system">
+    <hardware>
+      <xacro:if value="$(arg use_mock_hardware)">
+        <plugin>mock_components/GenericSystem</plugin>
+      </xacro:if>
+      <xacro:unless value="$(arg use_mock_hardware)">
+        <plugin>$(arg hardware_plugin)</plugin>
+        <param name="motor_config_path">$(arg motor_config_path)</param>
+        <param name="parallel_mechanisms_path">$(arg parallel_mechanisms_path)</param>
+        <param name="enable_on_activate">$(arg enable_on_activate)</param>
+        <param name="disable_on_deactivate">$(arg disable_on_deactivate)</param>
+        <param name="command_timeout_ms">$(arg command_timeout_ms)</param>
+        <param name="feedback_poll_timeout_ms">$(arg feedback_poll_timeout_ms)</param>
+        <param name="lifecycle_timeout_ms">$(arg lifecycle_timeout_ms)</param>
+        <param name="startup_feedback_warmup_s">$(arg startup_feedback_warmup_s)</param>
+        <param name="enable_retries">$(arg enable_retries)</param>
+        <param name="enable_retry_interval_ms">$(arg enable_retry_interval_ms)</param>
+      </xacro:unless>
+    </hardware>
+
+    <xacro:controlled_joint name="left_hip_yaw" lower="-1.50" upper="1.50" motor_name="left_hip_yaw"/>
+    <xacro:controlled_joint name="left_hip_roll" lower="-1.165" upper="2.465" motor_name="left_hip_roll"/>
+    <xacro:controlled_joint name="left_hip_pitch" lower="-2.384" upper="2.466" motor_name="left_hip_pitch"/>
+    <xacro:controlled_joint name="left_knee" lower="-1.699" upper="1.997" motor_name="left_knee"/>
+    <xacro:controlled_joint name="left_ankle_pitch" lower="-0.5" upper="0.3" motor_name="left_ankle_parallel_2"/>
+    <xacro:controlled_joint name="left_ankle_roll" lower="-0.2" upper="0.2" motor_name="left_ankle_parallel_1"/>
+    <xacro:controlled_joint name="right_hip_yaw" lower="-1.50" upper="1.50" motor_name="right_hip_yaw"/>
+    <xacro:controlled_joint name="right_hip_roll" lower="-2.506" upper="1.043" motor_name="right_hip_roll"/>
+    <xacro:controlled_joint name="right_hip_pitch" lower="-1.175" upper="2.84" motor_name="right_hip_pitch"/>
+    <xacro:controlled_joint name="right_knee" lower="-2.0056" upper="1.9842" motor_name="right_knee"/>
+    <xacro:controlled_joint name="right_ankle_pitch" lower="-0.5" upper="0.3" motor_name="right_ankle_parallel_2"/>
+    <xacro:controlled_joint name="right_ankle_roll" lower="-0.2" upper="0.2" motor_name="right_ankle_parallel_1"/>
+    <xacro:controlled_joint name="waist_yaw" lower="-1.57" upper="1.57" motor_name="waistyaw"/>
+    <xacro:controlled_joint name="waist_roll" lower="-0.2" upper="0.2" motor_name="waist_motor1"/>
+    <xacro:controlled_joint name="waist_pitch" lower="-0.5" upper="0.5" motor_name="waist_motor2"/>
+    <xacro:controlled_joint name="left_shoulder_pitch" lower="-3.42" upper="1.46" motor_name="left_shoulder_pitch"/>
+    <xacro:controlled_joint name="left_shoulder_roll" lower="-3.14" upper="0.16" motor_name="left_shoulder_roll"/>
+    <xacro:controlled_joint name="left_shoulder_yaw" lower="-1.669" upper="1.499" motor_name="left_shoulder_yaw"/>
+    <xacro:controlled_joint name="left_elbow" lower="-1.44" upper="0.99" motor_name="left_elbow"/>
+    <xacro:controlled_joint name="left_wrist_yaw" lower="-1.453" upper="1.691" motor_name="left_wrist_yaw"/>
+    <xacro:controlled_joint name="left_wrist_roll" lower="-1.739" upper="1.404" motor_name="left_wrist_roll"/>
+    <xacro:controlled_joint name="left_wrist_pitch" lower="-0.862" upper="0.709" motor_name="left_wrist_pitch"/>
+    <xacro:controlled_joint name="right_shoulder_pitch" lower="-1.374" upper="3.488" motor_name="right_shoulder_pitch"/>
+    <xacro:controlled_joint name="right_shoulder_roll" lower="-0.223" upper="3.172" motor_name="right_shoulder_roll"/>
+    <xacro:controlled_joint name="right_shoulder_yaw" lower="-1.594" upper="1.547" motor_name="right_shoulder_yaw"/>
+    <xacro:controlled_joint name="right_elbow" lower="-1.542" upper="0.992" motor_name="right_elbow"/>
+    <xacro:controlled_joint name="right_wrist_yaw" lower="-1.808" upper="1.328" motor_name="right_wrist_yaw"/>
+    <xacro:controlled_joint name="right_wrist_roll" lower="-1.573" upper="1.563" motor_name="right_wrist_roll"/>
+    <xacro:controlled_joint name="right_wrist_pitch" lower="-0.628" upper="0.947" motor_name="right_wrist_pitch"/>
+  </ros2_control>
+</robot>

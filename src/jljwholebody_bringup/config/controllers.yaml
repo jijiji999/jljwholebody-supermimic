@@ -1,0 +1,87 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 1000
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    whole_body_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+whole_body_controller:
+  ros__parameters:
+    joints:
+      - right_hip_pitch
+      - right_hip_roll
+      - right_hip_yaw
+      - right_knee
+      - right_ankle_pitch
+      - right_ankle_roll
+      - left_hip_pitch
+      - left_hip_roll
+      - left_hip_yaw
+      - left_knee
+      - left_ankle_pitch
+      - left_ankle_roll
+      - waist_yaw
+      - waist_roll
+      - waist_pitch
+      - left_shoulder_pitch
+      - left_shoulder_roll
+      - left_shoulder_yaw
+      - left_elbow
+      - left_wrist_yaw
+      - left_wrist_roll
+      - left_wrist_pitch
+      - right_shoulder_pitch
+      - right_shoulder_roll
+      - right_shoulder_yaw
+      - right_elbow
+      - right_wrist_yaw
+      - right_wrist_roll
+      - right_wrist_pitch
+
+    command_interfaces:
+      - position
+
+    state_interfaces:
+      - position
+      - velocity
+
+    allow_partial_joints_goal: false
+    open_loop_control: false
+    state_publish_rate: 50.0
+    action_monitor_rate: 20.0
+
+    constraints:
+      stopped_velocity_tolerance: 0.02
+      goal_time: 1.0
+      right_hip_pitch: {trajectory: 0.20, goal: 0.05}
+      right_hip_roll: {trajectory: 0.20, goal: 0.05}
+      right_hip_yaw: {trajectory: 0.20, goal: 0.05}
+      right_knee: {trajectory: 0.20, goal: 0.05}
+      right_ankle_pitch: {trajectory: 0.20, goal: 0.05}
+      right_ankle_roll: {trajectory: 0.20, goal: 0.05}
+      left_hip_pitch: {trajectory: 0.20, goal: 0.05}
+      left_hip_roll: {trajectory: 0.20, goal: 0.05}
+      left_hip_yaw: {trajectory: 0.20, goal: 0.05}
+      left_knee: {trajectory: 0.20, goal: 0.05}
+      left_ankle_pitch: {trajectory: 0.20, goal: 0.05}
+      left_ankle_roll: {trajectory: 0.20, goal: 0.05}
+      waist_yaw: {trajectory: 0.20, goal: 0.05}
+      waist_roll: {trajectory: 0.20, goal: 0.05}
+      waist_pitch: {trajectory: 0.20, goal: 0.05}
+      left_shoulder_pitch: {trajectory: 0.20, goal: 0.05}
+      left_shoulder_roll: {trajectory: 0.20, goal: 0.05}
+      left_shoulder_yaw: {trajectory: 0.20, goal: 0.05}
+      left_elbow: {trajectory: 0.20, goal: 0.05}
+      left_wrist_yaw: {trajectory: 0.20, goal: 0.05}
+      left_wrist_roll: {trajectory: 0.20, goal: 0.05}
+      left_wrist_pitch: {trajectory: 0.20, goal: 0.05}
+      right_shoulder_pitch: {trajectory: 0.20, goal: 0.05}
+      right_shoulder_roll: {trajectory: 0.20, goal: 0.05}
+      right_shoulder_yaw: {trajectory: 0.20, goal: 0.05}
+      right_elbow: {trajectory: 0.20, goal: 0.05}
+      right_wrist_yaw: {trajectory: 0.20, goal: 0.05}
+      right_wrist_roll: {trajectory: 0.20, goal: 0.05}
+      right_wrist_pitch: {trajectory: 0.20, goal: 0.05}
