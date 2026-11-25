@@ -41,6 +41,7 @@
 #include <utility>
 #include <vector>
 
+#include "jljwholebody_deploy/supermimic_policy.hpp"
 #include "jljwholebody_deploy/wholebody_policy.hpp"
 #include "jljwholebody_hardware/dm_motor_manager.hpp"
 #include "jljwholebody_hardware/parallel_kinematics.hpp"
@@ -57,6 +58,7 @@ using jljwholebody_hardware::dm_motor::MotorState;
 using jljwholebody_hardware::dm_motor::NamedMitCommand;
 using jljwholebody_deploy::WholebodyObservationHistory;
 using jljwholebody_deploy::OnnxPolicyRuntime;
+using jljwholebody_deploy::SuperMimicPolicy;
 using SteadyClock = std::chrono::steady_clock;
 
 constexpr char kNodeName[] = "jljwholebody_deploy";
@@ -273,6 +275,7 @@ enum class Mode
   kPassive,
   kFixed,
   kLoco,
+  kDanc,
 };
 
 enum class PolicyBackend
@@ -290,6 +293,8 @@ std::string to_string(const Mode mode)
       return "fixed";
     case Mode::kLoco:
       return "loco";
+    case Mode::kDanc:
+      return "danc";
     default:
       return "unknown";
   }
@@ -721,6 +726,7 @@ struct TopicsConfig
 struct ModeSwitchConfig
 {
   int a_button_index {0};
+  int danc_button_index {2};
   int lb_button_index {4};
   int rb_button_index {5};
   int lt_axis_index {4};
@@ -740,10 +746,18 @@ struct JoystickCommandConfig
   double yaw_scale {0.5};
 };
 
+struct JoystickRecordingConfig
+{
+  int dpad_y_axis_index {7};
+  double up_pressed_threshold {-0.5};
+  double down_pressed_threshold {0.5};
+};
+
 struct JoystickConfig
 {
   ModeSwitchConfig mode_switch {};
   JoystickCommandConfig command {};
+  JoystickRecordingConfig recording {};
 };
 
 struct PolicyConfig
@@ -856,8 +870,8 @@ struct TrajectoryConfig
 struct TrackingRecordingConfig
 {
   bool enabled {false};
-  std::string output_root {"~/.jljwholebody/tracking_runs"};
-  double sample_rate_hz {500.0};
+  std::string output_root {"log/jljwholebody_deploy"};
+  double sample_rate_hz {50.0};
   bool record_only_loco {true};
   bool write_html {true};
   bool write_csv {true};
@@ -883,6 +897,10 @@ struct DeploymentConfig
   ModeGains fixed_gains {};
   ModeGains loco_gains {};
   PolicyConfig policy {};
+  std::string danc_bundle_path;
+  std::string danc_joint_calibration_path;
+  double danc_takeover_duration_s {1.0};
+  bool danc_shadow_mode {true};
   TrajectoryConfig trajectory {};
   TrackingRecordingConfig recording {};
 };
@@ -933,7 +951,9 @@ struct TrackingSample
   std::vector<double> joint_position_targets;
   std::vector<double> simulation_joint_positions;
   std::vector<double> joint_velocities;
+  std::vector<double> joint_velocity_targets;
   std::vector<double> joint_torques;
+  std::vector<double> joint_torque_targets;
 };
 
 struct TrackingRun
@@ -954,20 +974,10 @@ struct TrackingRun
 enum class TrackingPlotKind
 {
   kPositionCompare,
-  kVelocity,
-  kTorque,
+  kVelocityCompare,
+  kTorqueCompare,
   kPositionError,
   kSimulationPositionError,
-};
-
-struct MotorSpaceSnapshot
-{
-  std::vector<std::string> names;
-  std::vector<double> positions;
-  std::vector<double> targets;
-  std::vector<double> simulation_positions;
-  std::vector<double> velocities;
-  std::vector<double> torques;
 };
 
 struct DirectJointBinding
@@ -1068,6 +1078,7 @@ public:
   void start()
   {
     load_config();
+    initialize_danc_policy();
     if (get_parameter("validate_config_only").as_bool()) {
       initialize_policy_runtime(true);
       RCLCPP_INFO(
@@ -1136,6 +1147,8 @@ public:
     fixed_hold_positions_ = config_.policy.default_joint_positions;
     latest_policy_targets_ = fixed_hold_positions_;
     latest_commanded_targets_ = fixed_hold_positions_;
+    latest_commanded_velocities_.assign(config_.policy.joint_names.size(), 0.0);
+    latest_commanded_torques_.assign(config_.policy.joint_names.size(), 0.0);
     last_policy_raw_action_.assign(config_.policy.joint_names.size(), 0.0F);
     {
       std::lock_guard<std::mutex> lock(stats_mutex_);
@@ -1170,7 +1183,8 @@ public:
     if (config_.recording.enabled) {
       RCLCPP_INFO(
         get_logger(),
-        "Tracking recording enabled: root=%s sample_rate=%.1f Hz record_only_loco=%s html=%s.",
+        "Tracking recording enabled: root=%s sample_rate=%.1f Hz record_only_loco=%s html=%s; "
+        "D-pad Up starts and D-pad Down stops in loco mode.",
         config_.recording.output_root.c_str(),
         config_.recording.sample_rate_hz,
         config_.recording.record_only_loco ? "true" : "false",
@@ -1408,6 +1422,10 @@ private:
       if (mode_switch) {
         config_.joystick.mode_switch.a_button_index = read_required_yaml_int(
           mode_switch, "a_button_index");
+        if (mode_switch["danc_button_index"]) {
+          config_.joystick.mode_switch.danc_button_index =
+            read_required_yaml_int(mode_switch, "danc_button_index");
+        }
         config_.joystick.mode_switch.lb_button_index = read_required_yaml_int(
           mode_switch, "lb_button_index");
         config_.joystick.mode_switch.rb_button_index = read_required_yaml_int(
@@ -1434,6 +1452,22 @@ private:
         config_.joystick.command.yaw_sign = read_required_yaml_double(command, "yaw_sign");
         config_.joystick.command.yaw_scale = read_required_yaml_double(command, "yaw_scale");
       }
+
+      const auto recording = joystick["recording"];
+      if (recording) {
+        config_.joystick.recording.dpad_y_axis_index = read_required_yaml_int(
+          recording, "dpad_y_axis_index");
+        config_.joystick.recording.up_pressed_threshold = read_required_yaml_double(
+          recording, "up_pressed_threshold");
+        config_.joystick.recording.down_pressed_threshold = read_required_yaml_double(
+          recording, "down_pressed_threshold");
+      }
+    }
+    if (config_.joystick.recording.up_pressed_threshold >= 0.0 ||
+      config_.joystick.recording.down_pressed_threshold <= 0.0)
+    {
+      throw std::runtime_error(
+              "joystick.recording up threshold must be negative and down threshold positive");
     }
 
     const auto modes = deploy["modes"];
@@ -1621,6 +1655,18 @@ private:
       if (config_.policy.inference_threads < 1) {
         throw std::runtime_error("policy.inference_threads must be at least one");
       }
+    }
+
+    const auto danc = deploy["danc"];
+    if (danc) {
+      config_.danc_bundle_path = resolve_config_path(
+        config_.config_path, read_required_yaml_string(danc, "bundle_path"));
+      if (danc["joint_calibration_path"]) {
+        config_.danc_joint_calibration_path = resolve_config_path(
+          config_.config_path, danc["joint_calibration_path"].as<std::string>());
+      }
+      config_.danc_takeover_duration_s = read_required_yaml_double(danc, "takeover_duration_s");
+      config_.danc_shadow_mode = danc["shadow_mode"].as<bool>();
     }
 
     load_trajectory_config(deploy["trajectory"]);
@@ -2204,6 +2250,43 @@ private:
     }
   }
 
+  void initialize_danc_policy()
+  {
+    if (config_.danc_bundle_path.empty()) {
+      return;
+    }
+    if (!config_.danc_shadow_mode && config_.danc_joint_calibration_path.empty()) {
+      throw std::runtime_error("danc motor output requires a measured joint calibration");
+    }
+    if (!std::filesystem::exists(config_.danc_bundle_path) && config_.danc_shadow_mode) {
+      RCLCPP_WARN(
+        get_logger(), "danc is unavailable until the SuperMimic bundle is installed at %s.",
+        config_.danc_bundle_path.c_str());
+      return;
+    }
+    const auto & switches = config_.joystick.mode_switch;
+    if (switches.danc_button_index < 0 || switches.danc_button_index == switches.a_button_index ||
+      switches.danc_button_index == switches.lb_button_index ||
+      switches.danc_button_index == switches.rb_button_index ||
+      !std::isfinite(config_.danc_takeover_duration_s) || config_.danc_takeover_duration_s < 0.0 ||
+      config_.loop.policy_rate_hz != SuperMimicPolicy::kRateHz)
+    {
+      throw std::runtime_error("danc requires a dedicated button, a valid takeover, and 50 Hz");
+    }
+    danc_policy_ = std::make_unique<SuperMimicPolicy>(
+      config_.danc_bundle_path, config_.policy.joint_names, config_.policy.inference_threads,
+      config_.danc_joint_calibration_path);
+    const std::vector<double> zero_velocity(config_.policy.joint_names.size(), 0.0);
+    (void)danc_policy_->step(
+      config_.policy.default_joint_positions, zero_velocity, {0.0F, 0.0F, 0.0F},
+      {0.0F, 0.0F, -1.0F}, 0);
+    danc_policy_->reset();
+    RCLCPP_INFO(
+      get_logger(), "Native SuperMimic ready: %zu frames at 50 Hz, shadow=%s, bundle=%s",
+      danc_policy_->frame_count(), config_.danc_shadow_mode ? "true" : "false",
+      config_.danc_bundle_path.c_str());
+  }
+
   void initialize_policy_runtime(const bool fail_fast = false)
   {
     if (config_.policy.backend == PolicyBackend::kTrajectory) {
@@ -2745,6 +2828,9 @@ private:
     bool last_passive_combo = false;
     bool last_fixed_combo = false;
     bool last_loco_combo = false;
+    bool last_danc_combo = false;
+    bool last_recording_start_pressed = false;
+    bool last_recording_stop_pressed = false;
 
     while (!stop_requested_.load() && rclcpp::ok()) {
       const auto loop_start = SteadyClock::now();
@@ -2766,6 +2852,12 @@ private:
         const bool passive_combo = combo_pressed_passive(joy);
         const bool fixed_combo = combo_pressed_fixed(joy);
         const bool loco_combo = combo_pressed_loco(joy);
+        const bool joy_fresh = joy.valid &&
+          SteadyClock::now() - joy.stamp <= to_steady_duration(config_.loop.joy_timeout_s);
+        const bool danc_combo = read_button(joy, config_.joystick.mode_switch.rb_button_index) &&
+          read_button(joy, config_.joystick.mode_switch.danc_button_index);
+        const bool recording_start_pressed = dpad_recording_start_pressed(joy);
+        const bool recording_stop_pressed = dpad_recording_stop_pressed(joy);
 
         if (passive_combo && !last_passive_combo) {
           transition_to_mode(Mode::kPassive, "joystick");
@@ -2777,10 +2869,26 @@ private:
           } else {
             transition_to_mode(Mode::kLoco, "joystick");
           }
+        } else if (joy_fresh && danc_combo && !last_danc_combo &&
+          !passive_combo && !fixed_combo && !loco_combo)
+        {
+          if (!danc_policy_) {
+            RCLCPP_WARN(get_logger(), "danc requires an installed SuperMimic bundle.");
+          } else if (current_mode_.load() != Mode::kFixed ||
+            SteadyClock::now() - fixed_transition_start_time_ <
+            to_steady_duration(config_.fixed_gains.transition_duration_s))
+          {
+            RCLCPP_WARN(get_logger(), "Enter fixed mode and wait for it to settle before danc.");
+          } else {
+            transition_to_mode(Mode::kDanc, "joystick", Mode::kFixed);
+          }
         }
         last_passive_combo = passive_combo;
         last_fixed_combo = fixed_combo;
         last_loco_combo = loco_combo;
+        if (joy_fresh) {
+          last_danc_combo = danc_combo;
+        }
 
         ImuSnapshot imu;
         {
@@ -2788,18 +2896,50 @@ private:
           imu = latest_imu_;
         }
 
-        const auto mode = current_mode_.load();
+        auto mode = current_mode_.load();
         if (mode == Mode::kLoco) {
-          validate_loco_safety(states, imu);
+          if (recording_start_pressed && !last_recording_start_pressed) {
+            start_tracking_recording("joystick_dpad_up");
+          } else if (recording_stop_pressed && !last_recording_stop_pressed) {
+            stop_tracking_recording("joystick_dpad_down");
+          }
+        }
+        last_recording_start_pressed = recording_start_pressed;
+        last_recording_stop_pressed = recording_stop_pressed;
+
+        if (mode == Mode::kLoco || mode == Mode::kDanc) {
+          validate_policy_safety(mode, states, imu);
+        }
+        if (mode == Mode::kDanc) {
+          if (!joy_fresh) {
+            throw std::runtime_error("danc joystick data is stale");
+          }
+          bool complete;
+          {
+            std::lock_guard<std::mutex> lock(state_mutex_);
+            if (!current_joint_state_.valid ||
+              SteadyClock::now() - danc_last_policy_time_ >
+              to_steady_duration(3.0 / SuperMimicPolicy::kRateHz))
+            {
+              throw std::runtime_error("danc state or policy targets are stale");
+            }
+            complete = danc_complete_;
+          }
+          if (complete) {
+            transition_to_mode(Mode::kFixed, "danc_complete", Mode::kDanc);
+            mode = current_mode_.load();
+          }
         }
         const auto commands = build_commands_for_mode(mode, states);
-        maybe_record_tracking_sample(mode, loop_start, states, imu);
-        if (config_.loop.command_timeout_ms == 0) {
-          motor_manager_->transmit_group_mit_fast(commands);
-        } else {
-          (void)motor_manager_->transmit_group_mit(
-            commands,
-            std::chrono::milliseconds(config_.loop.command_timeout_ms));
+        maybe_record_tracking_sample(mode, loop_start, imu);
+        if (mode == current_mode_.load()) {
+          if (config_.loop.command_timeout_ms == 0) {
+            motor_manager_->transmit_group_mit_fast(commands);
+          } else {
+            (void)motor_manager_->transmit_group_mit(
+              commands,
+              std::chrono::milliseconds(config_.loop.command_timeout_ms));
+          }
         }
       } catch (const std::exception & ex) {
         report_fault(std::string("control loop exception: ") + ex.what(), true);
@@ -2834,8 +2974,11 @@ private:
     while (!stop_requested_.load() && rclcpp::ok()) {
       const auto loop_start = SteadyClock::now();
       try {
-        if (current_mode_.load() == Mode::kLoco) {
+        const auto mode = current_mode_.load();
+        if (mode == Mode::kLoco) {
           step_policy_once();
+        } else if (mode == Mode::kDanc) {
+          step_danc_once(loop_start);
         }
       } catch (const std::exception & ex) {
         report_fault(std::string("policy loop exception: ") + ex.what(), true);
@@ -2853,6 +2996,56 @@ private:
         std::this_thread::sleep_until(next_tick);
         next_tick += period;
       }
+    }
+  }
+
+  void step_danc_once(const SteadyClock::time_point step_start)
+  {
+    LogicalJointState state;
+    std::size_t frame;
+    uint64_t generation;
+    bool preparing;
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      if (current_mode_.load() != Mode::kDanc || danc_complete_) {
+        return;
+      }
+      frame = danc_frame_;
+      if (frame >= danc_policy_->frame_count()) {
+        danc_complete_ = true;
+        return;
+      }
+      generation = danc_generation_;
+      state = current_joint_state_;
+      preparing = step_start - danc_start_time_ <
+        to_steady_duration(config_.danc_takeover_duration_s);
+    }
+    ImuSnapshot imu;
+    {
+      std::lock_guard<std::mutex> lock(imu_mutex_);
+      imu = latest_imu_;
+    }
+    if (!state.valid || !imu.valid ||
+      SteadyClock::now() - imu.stamp > to_steady_duration(config_.loop.imu_timeout_s))
+    {
+      throw std::runtime_error("danc requires valid joint state and a fresh IMU");
+    }
+    if (generation != danc_applied_generation_) {
+      danc_policy_->reset();
+      danc_applied_generation_ = generation;
+    }
+    const std::array<float, 3> angular_velocity {
+      static_cast<float>(imu.angular_velocity[0]),
+      static_cast<float>(imu.angular_velocity[1]),
+      static_cast<float>(imu.angular_velocity[2])};
+    const auto & targets = danc_policy_->step(
+      state.positions, state.velocities, angular_velocity, compute_projected_gravity(imu.orientation),
+      frame);
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (current_mode_.load() == Mode::kDanc && generation == danc_generation_) {
+      danc_targets_ = targets;
+      danc_last_policy_time_ = step_start;
+      danc_frame_ += preparing ? 0U : 1U;
     }
   }
 
@@ -3339,6 +3532,15 @@ private:
     const bool imu_stale = !imu.valid ||
       (SteadyClock::now() - imu.stamp > to_steady_duration(config_.loop.imu_timeout_s));
     const auto joy_command = command_from_joy(joy);
+    bool recording_active = false;
+    std::size_t recording_samples = 0U;
+    {
+      std::lock_guard<std::mutex> recording_lock(recording_mutex_);
+      recording_active = active_recording_.has_value();
+      if (recording_active) {
+        recording_samples = active_recording_->samples.size();
+      }
+    }
 
     const double any_fresh_feedback_rate = control_delta > 0U ?
       100.0 * static_cast<double>(control_any_fresh_delta) / static_cast<double>(control_delta) :
@@ -3350,9 +3552,16 @@ private:
       static_cast<double>(control_fresh_feedback_sum_delta) / static_cast<double>(control_delta) :
       0.0;
 
+    Mode mode;
+    std::size_t danc_frame;
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      mode = current_mode_.load();
+      danc_frame = danc_frame_;
+    }
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(2)
-        << "mode=" << to_string(current_mode_.load())
+        << "mode=" << to_string(mode)
         << " backend=" << to_string(config_.policy.backend)
         << " shadow=" << (config_.policy.shadow_mode ? "true" : "false")
         << " parallel_control=" << kParallelControlMode
@@ -3377,11 +3586,18 @@ private:
         << static_cast<double>(joy_command[0]) << ", "
         << static_cast<double>(joy_command[1]) << ", "
         << static_cast<double>(joy_command[2]) << ")"
+        << " recording=" << (recording_active ? "on" : "off")
+        << " recording_samples=" << recording_samples
         << " control_max=" << current_stats.control_compute_ms_max << "ms"
         << " policy_max=" << current_stats.policy_compute_ms_max << "ms"
         << " imu_gap_max=" << current_stats.imu_interval_ms_max << "ms"
         << " joy_gap_max=" << current_stats.joy_interval_ms_max << "ms"
         << " faults=" << current_stats.fault_count;
+    if (mode == Mode::kDanc) {
+      oss << " danc_shadow=" << (config_.danc_shadow_mode ? "true" : "false")
+          << " danc_calibrated=" << (config_.danc_joint_calibration_path.empty() ? "false" : "true")
+          << " danc_frame=" << danc_frame << "/" << danc_policy_->frame_count();
+    }
 
     std_msgs::msg::String status_message;
     status_message.data = oss.str();
@@ -3427,13 +3643,14 @@ private:
     };
   }
 
-  void validate_loco_safety(
+  void validate_policy_safety(
+    const Mode mode,
     const std::vector<MotorState> & states,
     const ImuSnapshot & imu) const
   {
     if (states.size() != motor_names_.size()) {
       throw std::runtime_error(
-              "loco safety: feedback available for " + std::to_string(states.size()) + "/" +
+              to_string(mode) + " safety: feedback available for " + std::to_string(states.size()) + "/" +
               std::to_string(motor_names_.size()) + " motors");
     }
 
@@ -3442,25 +3659,25 @@ private:
       const double age_s = std::chrono::duration<double>(now - state.stamp).count();
       if (!state.valid || age_s > config_.loop.max_motor_feedback_age_s) {
         throw std::runtime_error(
-                "loco safety: stale feedback for " + state.name + " age=" +
+                to_string(mode) + " safety: stale feedback for " + state.name + " age=" +
                 format_double(age_s, 4) + "s");
       }
       if (state.status != jljwholebody_hardware::dm_motor::MotorStatus::kEnabled) {
         throw std::runtime_error(
-                "loco safety: motor " + state.name + " status=" +
+                to_string(mode) + " safety: motor " + state.name + " status=" +
                 jljwholebody_hardware::dm_motor::to_string(state.status));
       }
     }
 
     if (!imu.valid || now - imu.stamp > to_steady_duration(config_.loop.imu_timeout_s)) {
-      throw std::runtime_error("loco safety: IMU is stale");
+      throw std::runtime_error(to_string(mode) + " safety: IMU is stale");
     }
     const auto gravity = compute_projected_gravity(imu.orientation);
     const double tilt_deg = std::acos(std::clamp(-static_cast<double>(gravity[2]), -1.0, 1.0)) *
       180.0 / M_PI;
     if (tilt_deg > config_.loop.max_tilt_deg) {
       throw std::runtime_error(
-              "loco safety: body tilt " + format_double(tilt_deg, 1) +
+              to_string(mode) + " safety: body tilt " + format_double(tilt_deg, 1) +
               "deg exceeds " + format_double(config_.loop.max_tilt_deg, 1) + "deg");
     }
   }
@@ -3483,6 +3700,9 @@ private:
     const Mode mode,
     const std::vector<MotorState> & states)
   {
+    const bool danc_driving = mode == Mode::kDanc && !config_.danc_shadow_mode;
+    const bool fixed_position_mode = mode == Mode::kFixed ||
+      (mode == Mode::kDanc && config_.danc_shadow_mode);
     const ModeGains & gains =
       (mode == Mode::kLoco &&
       config_.policy.shadow_mode) ? config_.passive_gains : mode_gains(mode);
@@ -3496,28 +3716,34 @@ private:
     std::vector<double> policy_targets;
     std::vector<double> fixed_transition_targets;
     std::vector<double> fixed_transition_start_positions;
-    std::vector<double> loco_transition_start_positions;
+    std::vector<double> policy_transition_start_positions;
     SteadyClock::time_point fixed_transition_start_time {};
     double fixed_transition_duration_s {0.0};
-    SteadyClock::time_point loco_transition_start_time {};
+    SteadyClock::time_point policy_transition_start_time {};
+    double takeover_duration_s = config_.policy.takeover_duration_s;
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
       logical_state = current_joint_state_;
       policy_targets = latest_policy_targets_;
-      if (mode == Mode::kFixed) {
+      if (fixed_position_mode) {
         fixed_transition_start_positions = fixed_transition_start_positions_;
         fixed_transition_start_time = fixed_transition_start_time_;
         fixed_transition_duration_s = config_.fixed_gains.transition_duration_s;
       } else if (mode == Mode::kLoco) {
-        loco_transition_start_positions = loco_transition_start_positions_;
-        loco_transition_start_time = loco_mode_start_time_;
+        policy_transition_start_positions = loco_transition_start_positions_;
+        policy_transition_start_time = loco_mode_start_time_;
+      } else if (danc_driving) {
+        policy_targets = danc_targets_;
+        policy_transition_start_positions = danc_start_positions_;
+        policy_transition_start_time = danc_start_time_;
+        takeover_duration_s = config_.danc_takeover_duration_s;
       }
     }
 
     const std::vector<double> * desired_logical_targets = nullptr;
     if (mode == Mode::kPassive && gains.follow_feedback_target) {
       desired_logical_targets = &logical_state.positions;
-    } else if (mode == Mode::kFixed) {
+    } else if (fixed_position_mode) {
       if (fixed_transition_duration_s > 1e-9) {
         const double elapsed_s = std::chrono::duration<double>(
           SteadyClock::now() - fixed_transition_start_time).count();
@@ -3535,16 +3761,15 @@ private:
       }
     } else if (mode == Mode::kLoco && config_.policy.shadow_mode) {
       desired_logical_targets = &logical_state.positions;
-    } else if (mode == Mode::kLoco) {
+    } else if (mode == Mode::kLoco || danc_driving) {
       const double elapsed_s = std::chrono::duration<double>(
-        SteadyClock::now() - loco_transition_start_time).count();
-      if (config_.policy.takeover_duration_s > 1e-9 &&
-        elapsed_s < config_.policy.takeover_duration_s)
+        SteadyClock::now() - policy_transition_start_time).count();
+      if (takeover_duration_s > 1e-9 && elapsed_s < takeover_duration_s)
       {
         fixed_transition_targets = blend_vectors(
-          loco_transition_start_positions,
+          policy_transition_start_positions,
           policy_targets,
-          smoothstep01(elapsed_s / config_.policy.takeover_duration_s));
+          smoothstep01(elapsed_s / takeover_duration_s));
         desired_logical_targets = &fixed_transition_targets;
       } else {
         desired_logical_targets = &policy_targets;
@@ -3556,6 +3781,10 @@ private:
     std::vector<NamedMitCommand> commands;
     commands.reserve(direct_joint_bindings_.size() + parallel_bindings_.size() * 2U);
     std::vector<double> commanded_logical_targets = *desired_logical_targets;
+    std::vector<double> commanded_logical_velocities(
+      config_.policy.joint_names.size(), 0.0);
+    std::vector<double> commanded_logical_torques(
+      config_.policy.joint_names.size(), 0.0);
 
     for (const auto & binding : direct_joint_bindings_) {
       double target_position = logical_state.valid && gains.follow_feedback_target &&
@@ -3563,8 +3792,12 @@ private:
         logical_state.positions[binding.joint_index] :
         (*desired_logical_targets)[binding.joint_index];
       bool clamped = false;
-      const auto [model_lower, model_upper] =
-        config_.policy.joint_position_limits[binding.joint_index];
+      auto [model_lower, model_upper] = config_.policy.joint_position_limits[binding.joint_index];
+      if (danc_driving) {
+        const auto & joint = danc_policy_->hardware_joint(binding.joint_index);
+        model_lower = joint.lower;
+        model_upper = joint.upper;
+      }
       const double model_limited_position = std::clamp(
         target_position, model_lower, model_upper);
       clamped = model_limited_position != target_position;
@@ -3576,6 +3809,13 @@ private:
       command.name = binding.motor_name;
       command.command.position = static_cast<float>(target_position);
       command.command.velocity = 0.0F;
+      if (danc_driving) {
+        const double effort = danc_effort(binding.joint_index, target_position, logical_state);
+        command.command.torque = static_cast<float>(effort);
+        commanded_logical_torques[binding.joint_index] = effort;
+        commands.push_back(std::move(command));
+        continue;
+      }
       const auto [kp, kd] = resolve_motor_gains(
         gains,
         binding.motor_name,
@@ -3586,6 +3826,15 @@ private:
       command.command.kp = static_cast<float>(kp);
       command.command.kd = static_cast<float>(kd);
       command.command.torque = 0.0F;
+      if (logical_state.valid &&
+        binding.joint_index < logical_state.positions.size() &&
+        binding.joint_index < logical_state.velocities.size())
+      {
+        commanded_logical_torques[binding.joint_index] =
+          kp * (target_position - logical_state.positions[binding.joint_index]) -
+          kd * logical_state.velocities[binding.joint_index] +
+          static_cast<double>(command.command.torque);
+      }
       commands.push_back(std::move(command));
     }
 
@@ -3619,6 +3868,10 @@ private:
         motor_2_position,
         error_message);
       if (!inverse_solved) {
+        if (danc_driving) {
+          throw std::runtime_error("danc parallel inverse failed for " + binding.name + ": " +
+                  error_message);
+        }
         report_fault(
           "parallel inverse solve failed for " + binding.name + ": " + error_message,
           false);
@@ -3628,8 +3881,8 @@ private:
         motor_2_position = motor_2_it != state_lookup.end() ? motor_2_it->second->position : 0.0;
       }
 
-      const bool active_loco =
-        mode == Mode::kLoco && !config_.policy.shadow_mode && inverse_solved;
+      const bool active_policy =
+        (danc_driving || (mode == Mode::kLoco && !config_.policy.shadow_mode)) && inverse_solved;
       const auto & pitch_contract = config_.policy.actuators[binding.pitch_joint_index];
       const auto & roll_contract = config_.policy.actuators[binding.roll_joint_index];
       const double pitch_kp = pitch_contract.valid ?
@@ -3643,7 +3896,7 @@ private:
 
       double motor_1_torque = 0.0;
       double motor_2_torque = 0.0;
-      if (active_loco) {
+      if (active_policy) {
         const auto motor_1_it = state_lookup.find(binding.motor_1_name);
         const auto motor_2_it = state_lookup.find(binding.motor_2_name);
         if (motor_1_it == state_lookup.end() || motor_2_it == state_lookup.end()) {
@@ -3652,12 +3905,16 @@ private:
 
         const double current_pitch = logical_state.positions[binding.pitch_joint_index];
         const double current_roll = logical_state.positions[binding.roll_joint_index];
-        const double pitch_effort =
+        const double pitch_effort = danc_driving ?
+          danc_effort(binding.pitch_joint_index, pitch_target, logical_state) :
           pitch_kp * (pitch_target - current_pitch) -
           pitch_kd * logical_state.velocities[binding.pitch_joint_index];
-        const double roll_effort =
+        const double roll_effort = danc_driving ?
+          danc_effort(binding.roll_joint_index, roll_target, logical_state) :
           roll_kp * (roll_target - current_roll) -
           roll_kd * logical_state.velocities[binding.roll_joint_index];
+        commanded_logical_torques[binding.pitch_joint_index] = pitch_effort;
+        commanded_logical_torques[binding.roll_joint_index] = roll_effort;
         if (!binding.kinematics.joint_to_motor_efforts(
             current_pitch,
             current_roll,
@@ -3682,7 +3939,7 @@ private:
       motor_1_command.command.position = static_cast<float>(motor_1_position);
       motor_1_command.command.velocity = 0.0F;
       std::pair<double, double> motor_1_gains;
-      if (active_loco) {
+      if (active_policy) {
         motor_1_gains = {0.0, 0.0};
       } else {
         motor_1_gains = resolve_motor_gains(
@@ -3704,7 +3961,7 @@ private:
       motor_2_command.command.position = static_cast<float>(motor_2_position);
       motor_2_command.command.velocity = 0.0F;
       std::pair<double, double> motor_2_gains;
-      if (active_loco) {
+      if (active_policy) {
         motor_2_gains = {0.0, 0.0};
       } else {
         motor_2_gains = resolve_motor_gains(
@@ -3725,9 +3982,23 @@ private:
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
       latest_commanded_targets_ = std::move(commanded_logical_targets);
+      latest_commanded_velocities_ = std::move(commanded_logical_velocities);
+      latest_commanded_torques_ = std::move(commanded_logical_torques);
     }
 
     return commands;
+  }
+
+  double danc_effort(
+    const std::size_t index, const double target, const LogicalJointState & state) const
+  {
+    const auto & joint = danc_policy_->hardware_joint(index);
+    const double effort =
+      joint.kp * (target - state.positions[index]) - joint.kd * state.velocities[index];
+    if (!std::isfinite(effort)) {
+      throw std::runtime_error("danc joint effort is not finite");
+    }
+    return std::clamp(effort, -joint.effort_limit, joint.effort_limit);
   }
 
   double resolve_gain(const double configured_gain, const double default_gain) const
@@ -3766,6 +4037,7 @@ private:
       case Mode::kPassive:
         return config_.passive_gains;
       case Mode::kFixed:
+      case Mode::kDanc:
         return config_.fixed_gains;
       case Mode::kLoco:
       default:
@@ -3792,6 +4064,18 @@ private:
            read_button(joy, config_.joystick.mode_switch.rb_button_index);
   }
 
+  bool dpad_recording_start_pressed(const JoySnapshot & joy) const
+  {
+    return read_axis(joy, config_.joystick.recording.dpad_y_axis_index) <=
+           static_cast<float>(config_.joystick.recording.up_pressed_threshold);
+  }
+
+  bool dpad_recording_stop_pressed(const JoySnapshot & joy) const
+  {
+    return read_axis(joy, config_.joystick.recording.dpad_y_axis_index) >=
+           static_cast<float>(config_.joystick.recording.down_pressed_threshold);
+  }
+
   bool read_button(const JoySnapshot & joy, const int index) const
   {
     if (!joy.valid || index < 0 || static_cast<std::size_t>(index) >= joy.buttons.size()) {
@@ -3811,7 +4095,6 @@ private:
   void maybe_record_tracking_sample(
     const Mode mode,
     const SteadyClock::time_point timestamp,
-    const std::vector<MotorState> & states,
     const ImuSnapshot & imu)
   {
     if (!config_.recording.enabled) {
@@ -3837,6 +4120,8 @@ private:
 
     LogicalJointState joint_state;
     std::vector<double> targets;
+    std::vector<double> velocity_targets;
+    std::vector<double> torque_targets;
     std::vector<double> simulation_positions;
     std::vector<float> observation;
     std::vector<float> raw_action;
@@ -3845,6 +4130,8 @@ private:
       std::lock_guard<std::mutex> state_lock(state_mutex_);
       joint_state = current_joint_state_;
       targets = latest_commanded_targets_;
+      velocity_targets = latest_commanded_velocities_;
+      torque_targets = latest_commanded_torques_;
       observation = latest_policy_observation_;
       raw_action = last_policy_raw_action_;
       loco_start_time = loco_mode_start_time_;
@@ -3854,6 +4141,12 @@ private:
     }
     if (targets.size() != joint_state.positions.size()) {
       targets = config_.policy.default_joint_positions;
+    }
+    if (velocity_targets.size() != joint_state.positions.size()) {
+      velocity_targets.assign(joint_state.positions.size(), 0.0);
+    }
+    if (torque_targets.size() != joint_state.positions.size()) {
+      torque_targets.assign(joint_state.positions.size(), 0.0);
     }
     if (mode == Mode::kLoco &&
       config_.policy.backend == PolicyBackend::kTrajectory &&
@@ -3865,18 +4158,12 @@ private:
           elapsed_s - config_.trajectory.startup_hold_s);
       }
     }
-
-    const auto motor_space = build_tracking_motor_space_snapshot(
-      joint_state,
-      targets,
-      simulation_positions,
-      states);
-
-    if (motor_space.names.empty()) {
-      return;
+    if (simulation_positions.size() != joint_state.positions.size()) {
+      simulation_positions.assign(
+        joint_state.positions.size(), std::numeric_limits<double>::quiet_NaN());
     }
     if (active_recording_->joint_names.empty()) {
-      active_recording_->joint_names = motor_space.names;
+      active_recording_->joint_names = config_.policy.joint_names;
     }
 
     TrackingSample sample;
@@ -3895,153 +4182,14 @@ private:
     }
     sample.policy_observation = std::move(observation);
     sample.raw_action = std::move(raw_action);
-    sample.joint_positions = std::move(motor_space.positions);
-    sample.joint_position_targets = std::move(motor_space.targets);
-    sample.simulation_joint_positions = std::move(motor_space.simulation_positions);
-    sample.joint_velocities = std::move(motor_space.velocities);
-    sample.joint_torques = std::move(motor_space.torques);
+    sample.joint_positions = std::move(joint_state.positions);
+    sample.joint_position_targets = std::move(targets);
+    sample.simulation_joint_positions = std::move(simulation_positions);
+    sample.joint_velocities = std::move(joint_state.velocities);
+    sample.joint_velocity_targets = std::move(velocity_targets);
+    sample.joint_torques = std::move(joint_state.efforts);
+    sample.joint_torque_targets = std::move(torque_targets);
     active_recording_->samples.push_back(std::move(sample));
-  }
-
-  MotorSpaceSnapshot build_tracking_motor_space_snapshot(
-    const LogicalJointState & logical_state,
-    const std::vector<double> & logical_targets,
-    const std::vector<double> & logical_simulation_positions,
-    const std::vector<MotorState> & states)
-  {
-    std::unordered_map<std::string, const MotorState *> state_lookup;
-    state_lookup.reserve(states.size());
-    for (const auto & state : states) {
-      state_lookup[state.name] = &state;
-    }
-
-    MotorSpaceSnapshot snapshot;
-    snapshot.names.reserve(direct_joint_bindings_.size() + parallel_bindings_.size() * 2U);
-    snapshot.positions.reserve(snapshot.names.capacity());
-    snapshot.targets.reserve(snapshot.names.capacity());
-    snapshot.simulation_positions.reserve(snapshot.names.capacity());
-    snapshot.velocities.reserve(snapshot.names.capacity());
-    snapshot.torques.reserve(snapshot.names.capacity());
-
-    for (const auto & binding : direct_joint_bindings_) {
-      const auto motor_state_it = state_lookup.find(binding.motor_name);
-      snapshot.names.push_back(binding.motor_name);
-      snapshot.positions.push_back(logical_state.positions[binding.joint_index]);
-      snapshot.targets.push_back(logical_targets[binding.joint_index]);
-      snapshot.simulation_positions.push_back(
-        logical_simulation_positions.size() == logical_targets.size() ?
-        logical_simulation_positions[binding.joint_index] :
-        std::numeric_limits<double>::quiet_NaN());
-      snapshot.velocities.push_back(logical_state.velocities[binding.joint_index]);
-      snapshot.torques.push_back(logical_state.efforts[binding.joint_index]);
-      if (motor_state_it != state_lookup.end()) {
-        snapshot.positions.back() = motor_state_it->second->position;
-        snapshot.velocities.back() = motor_state_it->second->velocity;
-        snapshot.torques.back() = motor_state_it->second->torque;
-      }
-    }
-
-    for (const auto & binding : parallel_bindings_) {
-      bool clamped = false;
-      const double requested_pitch = logical_targets[binding.pitch_joint_index];
-      const double requested_roll = logical_targets[binding.roll_joint_index];
-      double pitch_target = requested_pitch;
-      double roll_target = requested_roll;
-      pitch_target = clamp_with_limits(pitch_target, binding.kinematics.pitch_limits(), clamped);
-      roll_target = clamp_with_limits(roll_target, binding.kinematics.roll_limits(), clamped);
-
-      double motor_1_target = 0.0;
-      double motor_2_target = 0.0;
-      std::string error_message;
-      if (!binding.kinematics.inverse(
-          pitch_target,
-          roll_target,
-          motor_1_target,
-          motor_2_target,
-          error_message))
-      {
-        RCLCPP_WARN_THROTTLE(
-          get_logger(),
-          *get_clock(),
-          2000,
-          "Tracking recorder parallel inverse solve failed for %s: %s",
-          binding.name.c_str(),
-          error_message.c_str());
-        motor_1_target = std::numeric_limits<double>::quiet_NaN();
-        motor_2_target = std::numeric_limits<double>::quiet_NaN();
-      }
-
-      double motor_1_simulation_position = std::numeric_limits<double>::quiet_NaN();
-      double motor_2_simulation_position = std::numeric_limits<double>::quiet_NaN();
-      if (logical_simulation_positions.size() == logical_targets.size()) {
-        double simulation_pitch = logical_simulation_positions[binding.pitch_joint_index];
-        double simulation_roll = logical_simulation_positions[binding.roll_joint_index];
-        simulation_pitch = std::clamp(
-          simulation_pitch,
-          binding.kinematics.pitch_limits().min,
-          binding.kinematics.pitch_limits().max);
-        simulation_roll = std::clamp(
-          simulation_roll,
-          binding.kinematics.roll_limits().min,
-          binding.kinematics.roll_limits().max);
-        if (!binding.kinematics.inverse(
-            simulation_pitch,
-            simulation_roll,
-            motor_1_simulation_position,
-            motor_2_simulation_position,
-            error_message))
-        {
-          RCLCPP_WARN_THROTTLE(
-            get_logger(),
-            *get_clock(),
-            2000,
-            "Tracking recorder simulation reference inverse solve failed for %s: %s",
-            binding.name.c_str(),
-            error_message.c_str());
-          motor_1_simulation_position = std::numeric_limits<double>::quiet_NaN();
-          motor_2_simulation_position = std::numeric_limits<double>::quiet_NaN();
-        }
-      }
-
-      append_tracking_motor_sample(
-        snapshot,
-        state_lookup,
-        binding.motor_1_name,
-        motor_1_target,
-        motor_1_simulation_position);
-      append_tracking_motor_sample(
-        snapshot,
-        state_lookup,
-        binding.motor_2_name,
-        motor_2_target,
-        motor_2_simulation_position);
-    }
-
-    return snapshot;
-  }
-
-  void append_tracking_motor_sample(
-    MotorSpaceSnapshot & snapshot,
-    const std::unordered_map<std::string, const MotorState *> & state_lookup,
-    const std::string & motor_name,
-    const double target,
-    const double simulation_position)
-  {
-    snapshot.names.push_back(motor_name);
-    snapshot.targets.push_back(target);
-    snapshot.simulation_positions.push_back(simulation_position);
-
-    const auto motor_state_it = state_lookup.find(motor_name);
-    if (motor_state_it == state_lookup.end()) {
-      snapshot.positions.push_back(std::numeric_limits<double>::quiet_NaN());
-      snapshot.velocities.push_back(std::numeric_limits<double>::quiet_NaN());
-      snapshot.torques.push_back(std::numeric_limits<double>::quiet_NaN());
-      return;
-    }
-
-    snapshot.positions.push_back(motor_state_it->second->position);
-    snapshot.velocities.push_back(motor_state_it->second->velocity);
-    snapshot.torques.push_back(motor_state_it->second->torque);
   }
 
   std::array<double, 3> current_recording_command()
@@ -4200,6 +4348,7 @@ private:
       write_tracking_readme(run, output_dir / "README.md");
     }
     if (config_.recording.write_html) {
+      write_tracking_dashboard_html(run, output_dir / "index.html");
       write_tracking_plot_html(
         run,
         output_dir / "joint_position_compare.html",
@@ -4209,14 +4358,14 @@ private:
       write_tracking_plot_html(
         run,
         output_dir / "joint_velocities.html",
-        TrackingPlotKind::kVelocity,
-        "Joint Velocity",
+        TrackingPlotKind::kVelocityCompare,
+        "Joint Velocity Tracking",
         "rad/s or m/s");
       write_tracking_plot_html(
         run,
         output_dir / "joint_torques.html",
-        TrackingPlotKind::kTorque,
-        "Joint Torque",
+        TrackingPlotKind::kTorqueCompare,
+        "Joint Torque Tracking",
         "N*m or N");
       write_tracking_plot_html(
         run,
@@ -4278,7 +4427,13 @@ private:
       header.push_back("joint_vel/" + joint_name);
     }
     for (const auto & joint_name : run.joint_names) {
+      header.push_back("joint_vel_target/" + joint_name);
+    }
+    for (const auto & joint_name : run.joint_names) {
       header.push_back("joint_torque/" + joint_name);
+    }
+    for (const auto & joint_name : run.joint_names) {
+      header.push_back("joint_torque_target/" + joint_name);
     }
     for (int i = 0; i < config_.policy.expected_observation_dim; ++i) {
       header.push_back("policy_observation/" + std::to_string(i));
@@ -4316,7 +4471,9 @@ private:
             sample.simulation_joint_positions[i] - sample.joint_positions[i]));
       }
       append_csv_values(row, sample.joint_velocities);
+      append_csv_values(row, sample.joint_velocity_targets);
       append_csv_values(row, sample.joint_torques);
+      append_csv_values(row, sample.joint_torque_targets);
       for (int i = 0; i < config_.policy.expected_observation_dim; ++i) {
         row.push_back(
           i < static_cast<int>(sample.policy_observation.size()) ?
@@ -4427,21 +4584,25 @@ private:
     }
     stream << "  },\n";
     stream << "  \"units\": {\n";
-    stream << "    \"joint_pos\": \"rad for hinge joints, m for slide joints\",\n";
+    stream << "    \"joint_pos\": \"logical joint actual position; rad or m\",\n";
     stream <<
-      "    \"joint_pos_target\": \"commanded motor/real-joint target after parallel inverse solving where applicable\",\n";
+      "    \"joint_pos_target\": \"logical joint commanded position; rad or m\",\n";
     stream <<
-      "    \"sim_joint_pos\": \"simulated measured joint position transformed to motor space where applicable\",\n";
+      "    \"sim_joint_pos\": \"simulated logical joint position when available\",\n";
     stream << "    \"joint_pos_error\": \"joint_pos_target - joint_pos\",\n";
     stream << "    \"sim_hardware_pos_error\": \"sim_joint_pos - joint_pos\",\n";
-    stream << "    \"joint_vel\": \"rad/s for hinge joints, m/s for slide joints\",\n";
+    stream << "    \"joint_vel\": \"logical joint actual velocity; rad/s or m/s\",\n";
+    stream << "    \"joint_vel_target\": \"logical joint commanded velocity; rad/s or m/s\",\n";
     stream <<
-      "    \"joint_torque\": \"reported logical joint effort; N*m for hinge joints, N for slide joints\",\n";
+      "    \"joint_torque\": \"logical joint actual effort; N*m or N\",\n";
+    stream <<
+      "    \"joint_torque_target\": \"expected logical actuator effort from the command (PD plus feedforward); N*m or N\",\n";
     stream <<
       "    \"imu_projected_gravity\": \"unit gravity vector in body frame from IMU orientation\"\n";
     stream << "  },\n";
     stream << "  \"artifacts\": {\n";
     stream << "    \"joint_csv\": \"joint_timeseries.csv\",\n";
+    stream << "    \"interactive_html\": \"index.html\",\n";
     stream << "    \"joint_position_compare_html\": \"joint_position_compare.html\",\n";
     stream << "    \"joint_velocities_html\": \"joint_velocities.html\",\n";
     stream << "    \"joint_torques_html\": \"joint_torques.html\",\n";
@@ -4485,19 +4646,135 @@ private:
     stream << "\n";
     stream << "## Output Files\n\n";
     stream <<
-      "- `joint_timeseries.csv`: commanded target, simulated reference, hardware feedback, tracking errors, velocity, and torque in motor/real-joint space.\n";
+      "- `index.html`: interactive joint/metric selector comparing commanded and actual values.\n";
+    stream <<
+      "- `joint_timeseries.csv`: commanded and actual position, velocity, and effort in logical-joint space.\n";
     stream <<
       "- `joint_timeseries.csv` also includes `imu_projected_gravity_x/y/z` from the IMU orientation used by deploy.\n";
     stream <<
-      "- `joint_position_compare.html`: hardware actual, effective hardware command, and simulated actual position curves; parallel pitch/roll joints are shown as solved motor joints.\n";
+      "- `joint_position_compare.html`: logical actual, command, and optional simulation position curves.\n";
     stream <<
-      "- In loco logical-torque mode, a parallel-joint target is the logical PD target mapped to motor space. The MIT position field is ignored because motor Kp is zero.\n";
-    stream << "- `joint_velocities.html`: feedback velocity curves.\n";
-    stream << "- `joint_torques.html`: feedback effort/torque curves.\n";
+      "- Parallel mechanisms are recorded as virtual pitch/roll joints, not their two motor coordinates.\n";
+    stream << "- `joint_velocities.html`: commanded and actual logical velocity curves.\n";
+    stream << "- `joint_torques.html`: commanded and actual logical effort curves.\n";
     stream << "- `joint_position_errors.html`: target minus actual position curves.\n";
     stream <<
       "- `simulation_position_errors.html`: simulated actual minus hardware actual position curves.\n";
     stream << "- `summary.json`: metadata, per-joint RMSE/max error, and artifact list.\n";
+  }
+
+  void write_tracking_dashboard_html(
+    const TrackingRun & run,
+    const std::filesystem::path & path) const
+  {
+    std::ofstream stream(path);
+    if (!stream.is_open()) {
+      throw std::runtime_error("failed to open interactive HTML for writing: " + path.string());
+    }
+
+    const auto write_number = [&stream](const double value) {
+        if (std::isfinite(value)) {
+          stream << format_double(value);
+        } else {
+          stream << "null";
+        }
+      };
+    const auto write_matrix = [&stream, &run, &write_number](const auto & getter) {
+        stream << '[';
+        for (std::size_t sample_index = 0; sample_index < run.samples.size(); ++sample_index) {
+          if (sample_index > 0U) {
+            stream << ',';
+          }
+          stream << '[';
+          const auto & values = getter(run.samples[sample_index]);
+          for (std::size_t joint_index = 0; joint_index < run.joint_names.size(); ++joint_index) {
+            if (joint_index > 0U) {
+              stream << ',';
+            }
+            write_number(values[joint_index]);
+          }
+          stream << ']';
+        }
+        stream << ']';
+      };
+
+    stream << R"HTML(<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>关节期望/实际数据对比</title>
+<style>
+:root{color-scheme:light;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#172033;background:#f3f6fa}
+*{box-sizing:border-box}body{margin:0}.page{max-width:1280px;margin:auto;padding:22px}
+h1{font-size:24px;margin:0 0 5px}.meta{color:#667085;font-size:13px;margin-bottom:18px}
+.controls,.card{background:#fff;border:1px solid #d8dee9;border-radius:10px;box-shadow:0 2px 10px #24324a0a}
+.controls{padding:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:end;margin-bottom:14px}
+label{display:grid;gap:5px;font-size:12px;color:#526071}select{min-width:210px;padding:8px;border:1px solid #bcc6d6;border-radius:6px;background:#fff;color:#172033}
+.checks{display:flex;gap:14px;padding:7px 0;font-size:13px}.checks label{display:flex;align-items:center;gap:5px}
+.card{padding:15px}.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:#526071;margin:2px 0 10px}.swatch{display:inline-block;width:18px;height:3px;margin-right:6px;vertical-align:middle}
+.canvas-wrap{position:relative;width:100%;height:min(62vh,620px);min-height:360px}canvas{width:100%;height:100%;display:block}.hint{font-size:12px;color:#667085;margin-top:10px}
+@media(max-width:620px){.page{padding:12px}.controls{gap:10px}select{min-width:160px}.canvas-wrap{min-height:300px}}
+</style></head><body><div class="page">
+<h1>关节期望/实际数据对比</h1><div class="meta" id="meta"></div>
+<div class="controls">
+<label>指标<select id="metric"><option value="position">位置 (rad / m)</option><option value="velocity">速度 (rad/s / m/s)</option><option value="torque">力矩/力 (N·m / N)</option></select></label>
+<label>关节 A<select id="jointA"></select></label><label>对比关节 B<select id="jointB"><option value="">不选择</option></select></label>
+<div class="checks"><label><input id="showActual" type="checkbox" checked>实际</label><label><input id="showTarget" type="checkbox" checked>期望</label></div>
+</div><div class="card"><div class="legend" id="legend"></div><div class="canvas-wrap"><canvas id="chart"></canvas></div>
+<div class="hint">数据在本文件内，可离线打开。并联机构显示虚拟 pitch/roll 逻辑关节。</div></div></div>
+<script>
+const DATA=)HTML";
+    stream << "{\"runId\":\"" << escape_json(run.run_id) << "\",\"rate\":";
+    write_number(config_.recording.sample_rate_hz);
+    stream << ",\"joints\":[";
+    for (std::size_t i = 0; i < run.joint_names.size(); ++i) {
+      if (i > 0U) {
+        stream << ',';
+      }
+      stream << '"' << escape_json(run.joint_names[i]) << '"';
+    }
+    stream << "],\"time\":[";
+    for (std::size_t i = 0; i < run.samples.size(); ++i) {
+      if (i > 0U) {
+        stream << ',';
+      }
+      write_number(run.samples[i].time_s);
+    }
+    stream << "],\"position\":{\"actual\":";
+    write_matrix([](const TrackingSample & sample) -> const auto & {
+      return sample.joint_positions;
+    });
+    stream << ",\"target\":";
+    write_matrix([](const TrackingSample & sample) -> const auto & {
+      return sample.joint_position_targets;
+    });
+    stream << "},\"velocity\":{\"actual\":";
+    write_matrix([](const TrackingSample & sample) -> const auto & {
+      return sample.joint_velocities;
+    });
+    stream << ",\"target\":";
+    write_matrix([](const TrackingSample & sample) -> const auto & {
+      return sample.joint_velocity_targets;
+    });
+    stream << "},\"torque\":{\"actual\":";
+    write_matrix([](const TrackingSample & sample) -> const auto & {
+      return sample.joint_torques;
+    });
+    stream << ",\"target\":";
+    write_matrix([](const TrackingSample & sample) -> const auto & {
+      return sample.joint_torque_targets;
+    });
+    stream << R"HTML(}};
+const metric=document.getElementById('metric'),jointA=document.getElementById('jointA'),jointB=document.getElementById('jointB');
+const actualBox=document.getElementById('showActual'),targetBox=document.getElementById('showTarget'),canvas=document.getElementById('chart'),ctx=canvas.getContext('2d');
+DATA.joints.forEach((name,i)=>{for(const select of [jointA,jointB]){const o=document.createElement('option');o.value=i;o.textContent=name;select.appendChild(o)}});
+if(DATA.joints.length>1)jointB.value='';
+document.getElementById('meta').textContent=`${DATA.runId} · ${DATA.time.length} 个样本 · 目标采样率 ${DATA.rate} Hz`;
+const palette={aActual:'#2563eb',aTarget:'#dc2626',bActual:'#059669',bTarget:'#d97706'};
+function finite(v){return typeof v==='number'&&Number.isFinite(v)}
+function selectedSeries(){const m=DATA[metric.value],out=[],a=Number(jointA.value),b=jointB.value===''?null:Number(jointB.value);if(actualBox.checked)out.push({name:`${DATA.joints[a]} 实际`,values:m.actual.map(r=>r[a]),color:palette.aActual,dash:[]});if(targetBox.checked)out.push({name:`${DATA.joints[a]} 期望`,values:m.target.map(r=>r[a]),color:palette.aTarget,dash:[7,5]});if(b!==null&&actualBox.checked)out.push({name:`${DATA.joints[b]} 实际`,values:m.actual.map(r=>r[b]),color:palette.bActual,dash:[]});if(b!==null&&targetBox.checked)out.push({name:`${DATA.joints[b]} 期望`,values:m.target.map(r=>r[b]),color:palette.bTarget,dash:[7,5]});return out}
+function render(){const box=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;canvas.width=Math.max(1,Math.round(box.width*dpr));canvas.height=Math.max(1,Math.round(box.height*dpr));ctx.setTransform(dpr,0,0,dpr,0,0);const w=box.width,h=box.height,p={l:68,r:22,t:20,b:42},pw=w-p.l-p.r,ph=h-p.t-p.b,series=selectedSeries();let lo=Infinity,hi=-Infinity;for(const s of series)for(const v of s.values)if(finite(v)){lo=Math.min(lo,v);hi=Math.max(hi,v)}if(!finite(lo)){lo=-1;hi=1}if(Math.abs(hi-lo)<1e-9){lo-=.5;hi+=.5}else{const pad=(hi-lo)*.08;lo-=pad;hi+=pad}const t0=DATA.time[0]||0,t1=Math.max(DATA.time.at(-1)||0,t0+1e-6),x=t=>p.l+(t-t0)/(t1-t0)*pw,y=v=>p.t+(hi-v)/(hi-lo)*ph;ctx.clearRect(0,0,w,h);ctx.font='12px system-ui';ctx.fillStyle='#667085';ctx.strokeStyle='#e3e8ef';ctx.lineWidth=1;for(let i=0;i<=5;i++){const gy=p.t+i*ph/5;ctx.beginPath();ctx.moveTo(p.l,gy);ctx.lineTo(w-p.r,gy);ctx.stroke();const value=hi-i*(hi-lo)/5;ctx.fillText(value.toPrecision(4),5,gy+4)}for(let i=0;i<=5;i++){const gx=p.l+i*pw/5;ctx.beginPath();ctx.moveTo(gx,p.t);ctx.lineTo(gx,h-p.b);ctx.stroke();ctx.fillText((t0+i*(t1-t0)/5).toFixed(2)+'s',gx-13,h-14)}for(const s of series){ctx.beginPath();ctx.strokeStyle=s.color;ctx.lineWidth=1.8;ctx.setLineDash(s.dash);let open=false;s.values.forEach((v,i)=>{if(!finite(v)){open=false;return}const px=x(DATA.time[i]),py=y(v);if(open)ctx.lineTo(px,py);else{ctx.moveTo(px,py);open=true}});ctx.stroke()}ctx.setLineDash([]);document.getElementById('legend').innerHTML=series.map(s=>`<span><i class="swatch" style="background:${s.color}"></i>${s.name}</span>`).join('')}
+for(const el of [metric,jointA,jointB,actualBox,targetBox])el.addEventListener('change',render);window.addEventListener('resize',render);render();
+</script></body></html>)HTML";
   }
 
   void write_tracking_plot_html(
@@ -4591,6 +4868,11 @@ private:
         update_range(sample.joint_positions[joint_index]);
         update_range(sample.joint_position_targets[joint_index]);
         update_range(sample.simulation_joint_positions[joint_index]);
+      } else if (kind == TrackingPlotKind::kVelocityCompare ||
+        kind == TrackingPlotKind::kTorqueCompare)
+      {
+        update_range(tracking_plot_value(sample, kind, joint_index));
+        update_range(tracking_target_value(sample, kind, joint_index));
       } else {
         update_range(tracking_plot_value(sample, kind, joint_index));
       }
@@ -4660,6 +4942,16 @@ private:
       stream << "<polyline class=\"line-simulation\" fill=\"none\" stroke-width=\"1.5\" points=\"";
       write_simulation_polyline_points(stream, run, stride, joint_index, point);
       stream << "\"/>\n";
+    } else if (kind == TrackingPlotKind::kVelocityCompare ||
+      kind == TrackingPlotKind::kTorqueCompare)
+    {
+      stream << "<polyline class=\"line-actual\" fill=\"none\" stroke-width=\"1.8\" points=\"";
+      write_polyline_points(stream, run, stride, joint_index, point, kind);
+      stream << "\"/>\n";
+      stream <<
+        "<polyline class=\"line-target\" fill=\"none\" stroke-width=\"1.5\" stroke-dasharray=\"5 4\" points=\"";
+      write_target_polyline_points(stream, run, stride, joint_index, point, kind);
+      stream << "\"/>\n";
     } else {
       const char * cls =
         (kind == TrackingPlotKind::kPositionError ||
@@ -4673,6 +4965,11 @@ private:
     if (kind == TrackingPlotKind::kPositionCompare) {
       stream <<
         "<div class=\"legend\"><span style=\"color:#2563eb\">hardware actual</span><span style=\"color:#dc2626\">command target</span><span style=\"color:#15803d\">simulation actual</span></div>\n";
+    } else if (kind == TrackingPlotKind::kVelocityCompare ||
+      kind == TrackingPlotKind::kTorqueCompare)
+    {
+      stream <<
+        "<div class=\"legend\"><span style=\"color:#2563eb\">actual</span><span style=\"color:#dc2626\">command target</span></div>\n";
     } else if (kind == TrackingPlotKind::kPositionError) {
       stream <<
         "<div class=\"legend\"><span style=\"color:#7c3aed\">target - actual</span></div>\n";
@@ -4681,6 +4978,30 @@ private:
         "<div class=\"legend\"><span style=\"color:#7c3aed\">simulation - hardware</span></div>\n";
     }
     stream << "</section>\n";
+  }
+
+  template<typename PointFn>
+  void write_target_polyline_points(
+    std::ostream & stream,
+    const TrackingRun & run,
+    const std::size_t stride,
+    const std::size_t joint_index,
+    const PointFn & point,
+    const TrackingPlotKind kind) const
+  {
+    bool first = true;
+    for (std::size_t i = 0; i < run.samples.size(); i += stride) {
+      const auto & sample = run.samples[i];
+      const double value = tracking_target_value(sample, kind, joint_index);
+      if (!std::isfinite(value)) {
+        continue;
+      }
+      if (!first) {
+        stream << ' ';
+      }
+      stream << point(sample.time_s, value);
+      first = false;
+    }
   }
 
   template<typename PointFn>
@@ -4762,9 +5083,9 @@ private:
     const std::size_t joint_index) const
   {
     switch (kind) {
-      case TrackingPlotKind::kVelocity:
+      case TrackingPlotKind::kVelocityCompare:
         return sample.joint_velocities[joint_index];
-      case TrackingPlotKind::kTorque:
+      case TrackingPlotKind::kTorqueCompare:
         return sample.joint_torques[joint_index];
       case TrackingPlotKind::kPositionError:
         return sample.joint_position_targets[joint_index] - sample.joint_positions[joint_index];
@@ -4776,17 +5097,36 @@ private:
     }
   }
 
-  void transition_to_mode(const Mode next_mode, const std::string & reason)
+  double tracking_target_value(
+    const TrackingSample & sample,
+    const TrackingPlotKind kind,
+    const std::size_t joint_index) const
   {
-    const Mode previous_mode = current_mode_.exchange(next_mode);
-    if (previous_mode == next_mode) {
-      return;
+    switch (kind) {
+      case TrackingPlotKind::kVelocityCompare:
+        return sample.joint_velocity_targets[joint_index];
+      case TrackingPlotKind::kTorqueCompare:
+        return sample.joint_torque_targets[joint_index];
+      case TrackingPlotKind::kPositionCompare:
+      default:
+        return sample.joint_position_targets[joint_index];
     }
+  }
+
+  void transition_to_mode(
+    const Mode next_mode, const std::string & reason,
+    const std::optional<Mode> expected_mode = std::nullopt)
+  {
     const auto transition_time = SteadyClock::now();
 
+    Mode previous_mode;
     LogicalJointState joint_state;
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
+      previous_mode = current_mode_.load();
+      if (previous_mode == next_mode || (expected_mode && previous_mode != *expected_mode)) {
+        return;
+      }
       joint_state = current_joint_state_;
       if ((next_mode == Mode::kFixed && config_.fixed_gains.hold_current_pose_on_entry) ||
         (next_mode == Mode::kLoco && config_.loco_gains.hold_current_pose_on_entry))
@@ -4804,6 +5144,8 @@ private:
         fixed_transition_start_time_ = transition_time;
       }
       if (next_mode == Mode::kLoco) {
+        loco_policy_step_count_.store(0U, std::memory_order_relaxed);
+        policy_reset_generation_.fetch_add(1U, std::memory_order_release);
         loco_mode_start_time_ = transition_time;
         if (current_joint_state_.valid) {
           latest_policy_targets_ = current_joint_state_.positions;
@@ -4813,12 +5155,16 @@ private:
       if (next_mode != Mode::kLoco) {
         last_policy_raw_action_.assign(config_.policy.joint_names.size(), 0.0F);
       }
+      if (next_mode == Mode::kDanc) {
+        danc_start_positions_ = danc_targets_ = joint_state.positions;
+        danc_start_time_ = danc_last_policy_time_ = transition_time;
+        danc_frame_ = 0U;
+        danc_complete_ = false;
+        ++danc_generation_;
+      }
+      current_mode_.store(next_mode);
     }
-    if (next_mode == Mode::kLoco) {
-      loco_policy_step_count_.store(0U, std::memory_order_relaxed);
-      policy_reset_generation_.fetch_add(1U, std::memory_order_release);
-      start_tracking_recording(reason == "joystick" ? "joystick_A_RB" : "mode_loco");
-    } else if (previous_mode == Mode::kLoco) {
+    if (previous_mode == Mode::kLoco) {
       stop_tracking_recording("mode_" + to_string(next_mode));
     }
 
@@ -4953,6 +5299,7 @@ private:
   std::unique_ptr<MotorManager> motor_manager_;
   std::unique_ptr<OnnxPolicyRuntime> policy_runtime_;
   std::unique_ptr<WholebodyObservationHistory> observation_history_;
+  std::unique_ptr<SuperMimicPolicy> danc_policy_;
   std::vector<std::string> motor_names_;
   std::vector<MotorConfig> motor_configs_;
   std::unordered_map<std::string, std::size_t> joint_name_to_index_;
@@ -4975,8 +5322,18 @@ private:
   std::vector<double> loco_transition_start_positions_;
   std::vector<double> latest_policy_targets_;
   std::vector<double> latest_commanded_targets_;
+  std::vector<double> latest_commanded_velocities_;
+  std::vector<double> latest_commanded_torques_;
   std::vector<float> latest_policy_observation_;
   std::vector<float> last_policy_raw_action_;
+  std::vector<double> danc_targets_;
+  std::vector<double> danc_start_positions_;
+  SteadyClock::time_point danc_start_time_ {};
+  SteadyClock::time_point danc_last_policy_time_ {};
+  std::size_t danc_frame_ {0U};
+  bool danc_complete_ {false};
+  uint64_t danc_generation_ {0U};
+  uint64_t danc_applied_generation_ {0U};
 
   std::mutex error_mutex_;
   std::string last_error_message_;

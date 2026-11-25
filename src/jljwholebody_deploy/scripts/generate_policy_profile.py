@@ -212,7 +212,7 @@ def main() -> int:
             )
         # The current exporter formats this metadata to three decimal places. The
         # scale is applied outside the network, so the saved env remains authoritative.
-        if not close_list(onnx_action_scales, env_scales, tolerance=5e-4):
+        if not close_list(onnx_action_scales, env_scales, tolerance=5e-4 + 1e-12):
             raise ValueError(
                 f"ONNX action scales differ from saved env: {onnx_action_scales} vs {env_scales}"
             )

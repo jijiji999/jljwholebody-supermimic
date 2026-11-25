@@ -1,67 +1,69 @@
 # jljwholebody_joystick
 
-`jljwholebody_joystick` is the joystick input package for the JLJ whole-body
-humanoid deployment workspace. It reads a Flydigi-style gamepad through Linux
-`evdev` and publishes standard `sensor_msgs/msg/Joy` messages.
+`jljwholebody_joystick` 是 JLJ 全身机器人的手柄输入包。它通过 Linux `evdev`
+读取飞智类手柄，并发布标准 `sensor_msgs/msg/Joy` 消息。
 
-## Output
+## 输出
 
-- Node name: `jljwholebody_joystick`
-- Executable: `joystick_node`
-- Default topic: `/joy`
-- Message type: `sensor_msgs/msg/Joy`
-- Default publish rate: `50 Hz`
+- 可执行文件：`joystick_node`
+- 节点默认名称：直接 `ros2 run` 时为 `jljwholebody_joystick`，随 launch 启动时为 `joystick`
+- 默认话题：`/joy`
+- 消息类型：`sensor_msgs/msg/Joy`
+- 默认发布频率：`50 Hz`
 
-The node does not block robot bringup when the controller is not connected. It
-keeps running and tries to reconnect periodically.
+手柄未连接时节点不会阻塞 bringup 或 deploy，而是保持运行并定期尝试重连。
 
-The global robot-node index is documented in `docs/node_function_index.md`.
+## 主要代码
 
-## Dependencies
+| 文件 | 功能 |
+| --- | --- |
+| `jljwholebody_joystick/joystick_node.py` | 设备发现/重连、evdev 事件归一化及 Joy 消息发布 |
+| `launch/joystick.launch.py` | 手柄节点的独立 launch 和参数入口 |
+
+## 依赖
 
 ```bash
 sudo apt install python3-evdev
 ```
 
-If the device cannot be opened by your user, add the user to the `input` group,
-then log out and log in again:
+如果当前用户无法打开设备，将用户加入 `input` 组，然后注销并重新登录：
 
 ```bash
 sudo usermod -aG input "$USER"
 ```
 
-## Build
-
-From the workspace root:
+## 构建
 
 ```bash
-./scripts/build.sh --packages-select jljwholebody_joystick
+cd /home/rx/project/sliouzhou04/jljwholebody
+source /opt/ros/humble/setup.bash
+colcon build --symlink-install --packages-select jljwholebody_joystick
 source install/setup.bash
 ```
 
-## Run Only the Joystick Node
+## 单独运行手柄节点
 
-Auto-detect the first gamepad-like input device:
+自动检测第一个手柄类输入设备：
 
 ```bash
 ros2 launch jljwholebody_joystick joystick.launch.py
 ```
 
-Use a fixed input device:
+指定输入设备：
 
 ```bash
 ros2 launch jljwholebody_joystick joystick.launch.py \
   device_path:=/dev/input/event15
 ```
 
-Match a device by name:
+按设备名匹配：
 
 ```bash
 ros2 launch jljwholebody_joystick joystick.launch.py \
   device_name_contains:=Flydigi
 ```
 
-Change topic, deadzone, or publish rate:
+修改话题、死区或发布频率：
 
 ```bash
 ros2 launch jljwholebody_joystick joystick.launch.py \
@@ -70,15 +72,15 @@ ros2 launch jljwholebody_joystick joystick.launch.py \
   publish_rate:=100.0
 ```
 
-## Run with Robot Bringup
+## 随 Bringup 启动
 
-The main bringup starts the joystick node by default:
+主 bringup 默认启动手柄节点：
 
 ```bash
 ros2 launch jljwholebody_bringup bringup.launch.py use_mock_hardware:=true
 ```
 
-Disable the joystick node:
+关闭手柄节点：
 
 ```bash
 ros2 launch jljwholebody_bringup bringup.launch.py \
@@ -86,7 +88,7 @@ ros2 launch jljwholebody_bringup bringup.launch.py \
   use_joystick:=false
 ```
 
-Select a joystick from bringup:
+在 bringup 中选择手柄：
 
 ```bash
 ros2 launch jljwholebody_bringup bringup.launch.py \
@@ -94,9 +96,9 @@ ros2 launch jljwholebody_bringup bringup.launch.py \
   joystick_device_name:=Flydigi
 ```
 
-## Run with Deployment
+## 随正式部署启动
 
-The deploy launch also starts the joystick node by default:
+deploy launch 也默认启动手柄节点：
 
 ```bash
 ros2 launch jljwholebody_deploy deploy.launch.py use_joystick:=true
@@ -109,14 +111,16 @@ ros2 launch jljwholebody_deploy deploy.launch.py use_joystick:=true
 | `A + LB` | Switch to `passive` |
 | `A + LT` | Switch to `fixed` |
 | `A + RB` | Switch to `loco` |
+| D-pad Up, `axes[7] = -1` | Start 50 Hz tracking recording in `loco` |
+| D-pad Down, `axes[7] = +1` | Stop recording and generate reports in `loco` |
 | Left stick Y, `axes[1]` | Forward/back command `lin_x` |
 | Left stick X, `axes[0]` | Lateral command `lin_y` |
 | Right stick X, `axes[2]` | Yaw command |
 
-The exact indices, signs, and scales live in
-`src/jljwholebody_deploy/config/deploy.yaml` under `deployment.joystick`.
+准确的索引、符号和比例位于 `src/jljwholebody_deploy/config/deploy.yaml` 的
+`deployment.joystick`。
 
-## Parameters
+## 参数
 
 | Parameter | Default | Description |
 | --- | --- | --- |
@@ -128,7 +132,7 @@ The exact indices, signs, and scales live in
 | `reconnect_period` | `2.0` | Seconds between reconnect attempts when no controller is connected. |
 | `frame_id` | `flydigi` | Header frame id for published Joy messages. |
 
-## Axis Mapping
+## 摇杆映射
 
 | Joy field | Control |
 | --- | --- |
@@ -141,10 +145,9 @@ The exact indices, signs, and scales live in
 | `axes[6]` | D-pad X |
 | `axes[7]` | D-pad Y |
 
-Stick axes are normalized to `[-1.0, 1.0]`. LT and RT are normalized to
-`[0.0, 1.0]`.
+摇杆轴归一化到 `[-1.0, 1.0]`，LT 和 RT 归一化到 `[0.0, 1.0]`。
 
-## Button Mapping
+## 按键映射
 
 | Joy field | Button |
 | --- | --- |
@@ -159,11 +162,11 @@ Stick axes are normalized to `[-1.0, 1.0]`. LT and RT are normalized to
 | `buttons[8]` | L3 |
 | `buttons[9]` | R3 |
 
-`buttons[10]` through `buttons[15]` are reserved and currently stay at `0`.
+`buttons[10]`～`buttons[15]` 为保留位，当前保持为 `0`。
 
-## Check the Published Data
+## 检查发布数据
 
-In another terminal:
+在另一个终端中：
 
 ```bash
 source /opt/ros/humble/setup.bash
@@ -171,30 +174,30 @@ source install/setup.bash
 ros2 topic echo /joy
 ```
 
-Or view only the topic rate:
+或只查看话题频率：
 
 ```bash
 ros2 topic hz /joy
 ```
 
-## Troubleshooting
+## 故障排查
 
-List detected Linux input devices:
+列出 Linux 输入设备：
 
 ```bash
 ls -l /dev/input/
 ls -l /dev/input/by-id/
 ```
 
-If the node logs `Waiting for joystick controller...`, check that the controller
-is paired, powered on, and visible under `/dev/input/`.
+如果节点输出 `Waiting for joystick controller...`，检查手柄是否已配对、开机并显示在
+`/dev/input/` 下。
 
-If the node cannot read the device, check permissions:
+如果节点无法读取设备，检查权限：
 
 ```bash
 groups
 ls -l /dev/input/event*
 ```
 
-If multiple controllers are connected, set either `device_path` or
-`device_name_contains` so the robot always uses the expected device.
+如果连接了多个手柄，设置 `device_path` 或 `device_name_contains`，确保机器人总是
+选择预期设备。

@@ -1,8 +1,12 @@
 # jljwholebody_bringup
 
-`jljwholebody_bringup` 是整机 ros2_control 启动包，负责把机器人描述、控制器、硬件接口、手柄和可选 IMU 组合起来。
+`jljwholebody_bringup` 是整机 `ros2_control` 启动包，负责把机器人描述、控制器、
+硬件接口、手柄和可选 IMU 组合起来。它用于模型、控制器和真实硬件接口调试，
+不是 ONNX 策略的正式部署入口。
 
-如果要运行 `jljwholebody_deploy_node`，应先停止 bringup，避免多个入口同时控制电机。
+> **安全提示：** 真实硬件 bringup 和 `jljwholebody_deploy_node` 都会直接控制同一组
+> 电机，二者不能同时运行。正式策略部署请按照仓库根目录
+> [README](../../README.md#4-正式策略部署) 操作。
 
 ## 1. Launch 入口
 
@@ -10,13 +14,13 @@
 ros2 launch jljwholebody_bringup bringup.launch.py
 ```
 
-默认使用 mock hardware：
+默认使用 mock hardware，可安全检查控制器和接口：
 
 ```bash
 ros2 launch jljwholebody_bringup bringup.launch.py use_mock_hardware:=true
 ```
 
-真实硬件：
+真实硬件调试（不是正式策略部署）：
 
 ```bash
 ros2 launch jljwholebody_bringup bringup.launch.py \
@@ -26,6 +30,9 @@ ros2 launch jljwholebody_bringup bringup.launch.py \
   use_imu:=true \
   imu_port:=/dev/dm_imu
 ```
+
+上面的真实硬件命令会在 controller activate 时使能电机。启动前需要先运行 CAN
+bridge，并架起机器人、保留急停。结束 bringup 后才能启动策略部署。
 
 ## 2. 启动的节点
 
@@ -166,4 +173,13 @@ bash src/jljwholebody_bringup/scripts/start_can_bridge.sh 192.168.1.157 14000 50
 
 ```bash
 pkill cannelloni
+```
+
+脚本参数依次为 `REMOTE_IP`、`BASE_PORT`、`BUFFER_TIMEOUT_US`，默认值分别为
+`192.168.1.157`、`14000`、`50`。默认物理网卡为 `enp8s0`，可通过
+`ETHERNET_INTERFACE` 覆盖：
+
+```bash
+ETHERNET_INTERFACE=enp3s0 \
+  bash src/jljwholebody_bringup/scripts/start_can_bridge.sh 192.168.1.157 14000 50
 ```

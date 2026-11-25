@@ -1,0 +1,476 @@
+# Managed by prepare_policy_deployment.py; do not edit.
+policy_profile:
+  schema_version: 2
+  source:
+    training_run: /home/rx/project/sliouzhou04/unitree_rl_mjlab/logs/rsl_rl/jljwholebodyv2_velocity/2026-10-07_15-23-51
+    env_yaml: env.yaml
+    env_yaml_sha256: 2a44ad92b63447e4486c6e1535cffce69f861d34b80863f5c0b632cd5032ad50
+    original_onnx: jljwholebodyv2_2026-10-07_15-23-51.onnx
+    onnx_sha256: 428aaca5561c625307619f6cb0eb4a5298b628624ea739450836665deab76b5d
+    original_robot_xml: jljwholebodyv2_2026-10-07_15-23-51.mjcf.xml
+  robot_model:
+    name: "A00\u673A\u5668\u4EBA\u5168\u8EAB"
+    xml_snapshot: jljwholebodyv2_2026-10-07_15-23-51.mjcf.xml
+    xml_sha256: 20602b82a98839cb5df5a6c1a6a830eeb1da0eb5fb8f6521d305ffd739b50034
+  model_path: jljwholebodyv2_2026-10-07_15-23-51.onnx
+  expected_observation_dim: 490
+  expected_action_dim: 29
+  observation_layout: term_major
+  observation_history_length: 5
+  observation_terms:
+  - name: base_ang_vel
+    size: 3
+  - name: projected_gravity
+    size: 3
+  - name: command
+    size: 3
+  - name: phase
+    size: 2
+  - name: joint_pos
+    size: 29
+  - name: joint_vel
+    size: 29
+  - name: actions
+    size: 29
+  gait_period_s: 0.6
+  joint_names:
+  - right_hip_pitch
+  - right_hip_roll
+  - right_hip_yaw
+  - right_knee
+  - right_ankle_pitch
+  - right_ankle_roll
+  - left_hip_pitch
+  - left_hip_roll
+  - left_hip_yaw
+  - left_knee
+  - left_ankle_pitch
+  - left_ankle_roll
+  - waist_yaw
+  - waist_roll
+  - waist_pitch
+  - left_shoulder_pitch
+  - left_shoulder_roll
+  - left_shoulder_yaw
+  - left_elbow
+  - left_wrist_yaw
+  - left_wrist_roll
+  - left_wrist_pitch
+  - right_shoulder_pitch
+  - right_shoulder_roll
+  - right_shoulder_yaw
+  - right_elbow
+  - right_wrist_yaw
+  - right_wrist_roll
+  - right_wrist_pitch
+  default_joint_positions:
+  - 0.2
+  - 0.0
+  - -0.07
+  - 0.3
+  - -0.15
+  - 0.0
+  - -0.2
+  - 0.0
+  - 0.07
+  - -0.3
+  - -0.15
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.4
+  - 0.0
+  - 0.0
+  - -0.3
+  - 0.0
+  - 0.0
+  - 0.0
+  - -0.4
+  - 0.0
+  - 0.0
+  - -0.3
+  - 0.0
+  - 0.0
+  - 0.0
+  action_scale:
+    right_hip_pitch: 0.15
+    right_hip_roll: 0.15
+    right_hip_yaw: 0.15
+    right_knee: 0.12
+    right_ankle_pitch: 0.15
+    right_ankle_roll: 0.15
+    left_hip_pitch: 0.15
+    left_hip_roll: 0.15
+    left_hip_yaw: 0.15
+    left_knee: 0.12
+    left_ankle_pitch: 0.15
+    left_ankle_roll: 0.15
+    waist_yaw: 0.06666666666666667
+    waist_roll: 0.06666666666666667
+    waist_pitch: 0.06666666666666667
+    left_shoulder_pitch: 0.25
+    left_shoulder_roll: 0.25
+    left_shoulder_yaw: 0.25
+    left_elbow: 0.25
+    left_wrist_yaw: 0.25
+    left_wrist_roll: 0.25
+    left_wrist_pitch: 0.25
+    right_shoulder_pitch: 0.25
+    right_shoulder_roll: 0.25
+    right_shoulder_yaw: 0.25
+    right_elbow: 0.25
+    right_wrist_yaw: 0.25
+    right_wrist_roll: 0.25
+    right_wrist_pitch: 0.25
+  joint_limits:
+    right_hip_pitch:
+    - -1.57
+    - 1.57
+    right_hip_roll:
+    - -1.57
+    - 1.57
+    right_hip_yaw:
+    - -1.57
+    - 1.57
+    right_knee:
+    - -1.57
+    - 1.57
+    right_ankle_pitch:
+    - -0.6
+    - 0.35
+    right_ankle_roll:
+    - -0.2
+    - 0.2
+    left_hip_pitch:
+    - -1.57
+    - 1.57
+    left_hip_roll:
+    - -1.57
+    - 1.57
+    left_hip_yaw:
+    - -1.57
+    - 1.57
+    left_knee:
+    - -1.57
+    - 1.57
+    left_ankle_pitch:
+    - -0.6
+    - 0.35
+    left_ankle_roll:
+    - -0.2
+    - 0.2
+    waist_yaw:
+    - -1.57
+    - 1.57
+    waist_roll:
+    - -1.57
+    - 1.57
+    waist_pitch:
+    - -1.57
+    - 1.57
+    left_shoulder_pitch:
+    - -1.57
+    - 1.57
+    left_shoulder_roll:
+    - -1.57
+    - 1.57
+    left_shoulder_yaw:
+    - -1.57
+    - 1.57
+    left_elbow:
+    - -1.57
+    - 1.57
+    left_wrist_yaw:
+    - -1.57
+    - 1.57
+    left_wrist_roll:
+    - -1.57
+    - 1.57
+    left_wrist_pitch:
+    - -1.57
+    - 1.57
+    right_shoulder_pitch:
+    - -1.57
+    - 1.57
+    right_shoulder_roll:
+    - -1.57
+    - 1.57
+    right_shoulder_yaw:
+    - -1.57
+    - 1.57
+    right_elbow:
+    - -1.57
+    - 1.57
+    right_wrist_yaw:
+    - -1.57
+    - 1.57
+    right_wrist_roll:
+    - -1.57
+    - 1.57
+    right_wrist_pitch:
+    - -1.57
+    - 1.57
+  joint_axes:
+    right_hip_pitch:
+    - 0.0
+    - 0.0
+    - 1.0
+    right_hip_roll:
+    - 0.0
+    - 0.0
+    - 1.0
+    right_hip_yaw:
+    - 0.0
+    - 0.0
+    - -1.0
+    right_knee:
+    - 0.0
+    - 0.0
+    - 1.0
+    right_ankle_pitch:
+    - 0.0
+    - 0.0
+    - 1.0
+    right_ankle_roll:
+    - 0.0
+    - 0.0
+    - 1.0
+    left_hip_pitch:
+    - 0.0
+    - 0.0
+    - 1.0
+    left_hip_roll:
+    - 0.0
+    - 0.0
+    - 1.0
+    left_hip_yaw:
+    - 0.0
+    - 0.0
+    - -1.0
+    left_knee:
+    - 0.0
+    - 0.0
+    - 1.0
+    left_ankle_pitch:
+    - 0.0
+    - 0.0
+    - -1.0
+    left_ankle_roll:
+    - 0.0
+    - 0.0
+    - 1.0
+    waist_yaw:
+    - 0.0
+    - 0.0
+    - 1.0
+    waist_roll:
+    - 0.0
+    - 0.0
+    - 1.0
+    waist_pitch:
+    - 0.0
+    - 0.0
+    - -1.0
+    left_shoulder_pitch:
+    - 0.0
+    - 0.0
+    - 1.0
+    left_shoulder_roll:
+    - 0.0
+    - 0.0
+    - 1.0
+    left_shoulder_yaw:
+    - 0.0
+    - 0.0
+    - -1.0
+    left_elbow:
+    - 0.0
+    - 0.0
+    - 1.0
+    left_wrist_yaw:
+    - 0.0
+    - 0.0
+    - 1.0
+    left_wrist_roll:
+    - 0.0
+    - 0.0
+    - -1.0
+    left_wrist_pitch:
+    - 0.0
+    - 0.0
+    - 1.0
+    right_shoulder_pitch:
+    - 0.0
+    - 0.0
+    - 1.0
+    right_shoulder_roll:
+    - 0.0
+    - 0.0
+    - 1.0
+    right_shoulder_yaw:
+    - 0.0
+    - 0.0
+    - -1.0
+    right_elbow:
+    - 0.0
+    - 0.0
+    - 1.0
+    right_wrist_yaw:
+    - 0.0
+    - 0.0
+    - 1.0
+    right_wrist_roll:
+    - 0.0
+    - 0.0
+    - -1.0
+    right_wrist_pitch:
+    - 0.0
+    - 0.0
+    - 1.0
+  actuators:
+    right_hip_pitch:
+      kp: 200.0
+      kd: 3.3
+      effort_limit: 120.0
+      velocity_limit: 25.0
+    right_hip_roll:
+      kp: 200.0
+      kd: 3.3
+      effort_limit: 120.0
+      velocity_limit: 25.0
+    right_hip_yaw:
+      kp: 200.0
+      kd: 3.3
+      effort_limit: 120.0
+      velocity_limit: 25.0
+    right_knee:
+      kp: 250.0
+      kd: 5.0
+      effort_limit: 120.0
+      velocity_limit: 25.0
+    right_ankle_pitch:
+      kp: 100.0
+      kd: 3.0
+      effort_limit: 60.0
+      velocity_limit: 8.0
+    right_ankle_roll:
+      kp: 100.0
+      kd: 3.0
+      effort_limit: 60.0
+      velocity_limit: 8.0
+    left_hip_pitch:
+      kp: 200.0
+      kd: 3.3
+      effort_limit: 120.0
+      velocity_limit: 25.0
+    left_hip_roll:
+      kp: 200.0
+      kd: 3.3
+      effort_limit: 120.0
+      velocity_limit: 25.0
+    left_hip_yaw:
+      kp: 200.0
+      kd: 3.3
+      effort_limit: 120.0
+      velocity_limit: 25.0
+    left_knee:
+      kp: 250.0
+      kd: 5.0
+      effort_limit: 120.0
+      velocity_limit: 25.0
+    left_ankle_pitch:
+      kp: 100.0
+      kd: 3.0
+      effort_limit: 60.0
+      velocity_limit: 8.0
+    left_ankle_roll:
+      kp: 100.0
+      kd: 3.0
+      effort_limit: 60.0
+      velocity_limit: 8.0
+    waist_yaw:
+      kp: 150.0
+      kd: 4.0
+      effort_limit: 40.0
+      velocity_limit: 15.0
+    waist_roll:
+      kp: 150.0
+      kd: 4.0
+      effort_limit: 40.0
+      velocity_limit: 15.0
+    waist_pitch:
+      kp: 150.0
+      kd: 4.0
+      effort_limit: 40.0
+      velocity_limit: 15.0
+    left_shoulder_pitch:
+      kp: 40.0
+      kd: 2.0
+      effort_limit: 40.0
+      velocity_limit: 20.0
+    left_shoulder_roll:
+      kp: 40.0
+      kd: 2.0
+      effort_limit: 40.0
+      velocity_limit: 20.0
+    left_shoulder_yaw:
+      kp: 40.0
+      kd: 2.0
+      effort_limit: 40.0
+      velocity_limit: 20.0
+    left_elbow:
+      kp: 40.0
+      kd: 2.0
+      effort_limit: 40.0
+      velocity_limit: 20.0
+    left_wrist_yaw:
+      kp: 20.0
+      kd: 1.0
+      effort_limit: 20.0
+      velocity_limit: 20.0
+    left_wrist_roll:
+      kp: 20.0
+      kd: 1.0
+      effort_limit: 20.0
+      velocity_limit: 20.0
+    left_wrist_pitch:
+      kp: 20.0
+      kd: 1.0
+      effort_limit: 20.0
+      velocity_limit: 20.0
+    right_shoulder_pitch:
+      kp: 40.0
+      kd: 2.0
+      effort_limit: 40.0
+      velocity_limit: 20.0
+    right_shoulder_roll:
+      kp: 40.0
+      kd: 2.0
+      effort_limit: 40.0
+      velocity_limit: 20.0
+    right_shoulder_yaw:
+      kp: 40.0
+      kd: 2.0
+      effort_limit: 40.0
+      velocity_limit: 20.0
+    right_elbow:
+      kp: 40.0
+      kd: 2.0
+      effort_limit: 40.0
+      velocity_limit: 20.0
+    right_wrist_yaw:
+      kp: 20.0
+      kd: 1.0
+      effort_limit: 20.0
+      velocity_limit: 20.0
+    right_wrist_roll:
+      kp: 20.0
+      kd: 1.0
+      effort_limit: 20.0
+      velocity_limit: 20.0
+    right_wrist_pitch:
+      kp: 20.0
+      kd: 1.0
+      effort_limit: 20.0
+      velocity_limit: 20.0

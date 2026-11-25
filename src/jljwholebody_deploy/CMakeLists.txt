@@ -55,6 +55,7 @@ get_filename_component(ONNXRUNTIME_LIBRARY_REAL "${ONNXRUNTIME_LIBRARY}" REALPAT
 
 add_library(wholebody_policy_runtime STATIC
   src/wholebody_policy.cpp
+  src/supermimic_policy.cpp
 )
 target_compile_features(wholebody_policy_runtime PUBLIC cxx_std_17)
 target_include_directories(wholebody_policy_runtime
@@ -67,6 +68,8 @@ target_include_directories(wholebody_policy_runtime
 target_link_libraries(wholebody_policy_runtime
   PUBLIC
     ${ONNXRUNTIME_LIBRARY}
+  PRIVATE
+    yaml-cpp
 )
 
 add_executable(jljwholebody_deploy_node
@@ -121,6 +124,7 @@ install(
   DIRECTORY config
   DESTINATION share/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE
+  PATTERN ".gitignore" EXCLUDE
 )
 
 install(

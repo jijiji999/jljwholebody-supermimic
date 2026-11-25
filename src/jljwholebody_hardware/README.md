@@ -10,6 +10,18 @@
 
 本 workspace 不构建半身调试/频率测试节点；实机部署只使用硬件插件和 `jljwholebody_deploy_node`，避免多个程序同时控制同一条 CAN 总线。
 
+## 代码结构
+
+| 文件 | 功能 |
+| --- | --- |
+| `src/socketcan_transport.cpp` | Linux SocketCAN 帧收发 |
+| `src/dm_motor_protocol.cpp` | DM 电机协议编解码 |
+| `src/dm_motor_driver.cpp` | 单电机命令、反馈和生命周期操作 |
+| `src/dm_motor_manager.cpp` | 从 YAML 加载并管理全身电机 |
+| `src/parallel_kinematics.cpp` | 脚踝并联正逆解及状态/力矩映射 |
+| `src/waist_parallel_solver.cpp` | 腰部 pitch/roll 并联机构求解 |
+| `src/jljwholebody_system.cpp` | 面向 `ros2_control` 的 29 关节 `SystemInterface` |
+
 ## 配置
 
 默认电机配置：`config/dm_motor_whole_body.yaml`。
@@ -43,6 +55,10 @@ ros2 launch jljwholebody_bringup bringup.launch.py \
   use_imu:=true
 ```
 
+这里的 `enable_on_activate:=false` 适合先检查硬件接口；设为 `true` 会在 controller
+activate 时使能电机。此入口只用于 `ros2_control` 调试，不能和
+`jljwholebody_deploy_node` 同时运行。
+
 硬件插件参数包括 `motor_config_path`、`parallel_mechanisms_path`、`enable_on_activate`、`disable_on_deactivate`、反馈/命令超时和启动重试参数。留空时使用包内全身配置。
 
 ## CAN bridge
@@ -52,3 +68,6 @@ ros2 launch jljwholebody_bringup bringup.launch.py \
 ```bash
 bash src/jljwholebody_bringup/scripts/start_can_bridge.sh 192.168.1.157 14000 50
 ```
+
+默认物理网卡为 `enp8s0`，可通过 `ETHERNET_INTERFACE` 环境变量覆盖。完整的实机
+检查、策略校验和正式启动顺序见仓库根目录 [README](../../README.md#4-正式策略部署)。

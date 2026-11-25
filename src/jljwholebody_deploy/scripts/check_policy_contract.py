@@ -159,7 +159,7 @@ def main() -> int:
         check(
             "ONNX action scale metadata",
             close_list(
-                floats(metadata.get("action_scale", "")), scales, tolerance=5e-4
+                floats(metadata.get("action_scale", "")), scales, tolerance=5e-4 + 1e-12
             ),
             "exporter metadata is rounded; saved env values are used at runtime",
         )

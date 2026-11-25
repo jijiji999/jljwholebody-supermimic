@@ -277,6 +277,13 @@ motors:
     notes: left_leg
     default_kp: 0
     default_kd: 0
+    max_output_torque: 40.0
+    # Ankle firmware MIT T_MAX is 40 Nm; retain the 4340 velocity range.
+    limits:
+      velocity_min: -10.0
+      velocity_max: 10.0
+      torque_min: -40.0
+      torque_max: 40.0
   - name: left_ankle_parallel_2
     interface: vcan2
     can_id: 0x06
@@ -285,6 +292,12 @@ motors:
     notes: left_leg
     default_kp: 0
     default_kd: 0
+    max_output_torque: 40.0
+    limits:
+      velocity_min: -10.0
+      velocity_max: 10.0
+      torque_min: -40.0
+      torque_max: 40.0
   - name: right_hip_pitch
     interface: vcan3
     can_id: 0x01
@@ -341,6 +354,12 @@ motors:
     notes: right_leg
     default_kp: 0
     default_kd: 0
+    max_output_torque: 40.0
+    limits:
+      velocity_min: -10.0
+      velocity_max: 10.0
+      torque_min: -40.0
+      torque_max: 40.0
   - name: right_ankle_parallel_2
     interface: vcan3
     can_id: 0x06
@@ -349,3 +368,9 @@ motors:
     notes: right_leg
     default_kp: 0
     default_kd: 0
+    max_output_torque: 40.0
+    limits:
+      velocity_min: -10.0
+      velocity_max: 10.0
+      torque_min: -40.0
+      torque_max: 40.0

@@ -56,6 +56,7 @@ deployment:
   joystick:
     mode_switch:
       a_button_index: 0
+      danc_button_index: 2  # RB + X
       lb_button_index: 4
       rb_button_index: 5
       lt_axis_index: 4
@@ -70,6 +71,23 @@ deployment:
       yaw_axis_index: 2
       yaw_sign: -1.0
       yaw_scale: 0.7
+    recording:
+      # Linux evdev ABS_HAT0Y: up=-1, released=0, down=+1.
+      dpad_y_axis_index: 7
+      up_pressed_threshold: -0.5
+      down_pressed_threshold: 0.5
+
+  # In loco mode, D-pad Up starts a run and D-pad Down stops it. The output
+  # root is relative to the directory from which ros2 launch/run is invoked.
+  recording:
+    enabled: true
+    output_root: "log/jljwholebody_deploy"
+    sample_rate_hz: 50.0
+    record_only_loco: true
+    write_html: true
+    write_csv: true
+    write_readme: true
+    write_summary: true
 
   modes:
     startup_mode: "passive"
@@ -153,3 +171,9 @@ deployment:
     raw_action_clip: 5.0
     takeover_duration_s: 0.05
     shadow_mode: false
+
+  danc:
+    bundle_path: "policies/supermimic/bundle"
+    joint_calibration_path: ""  # Measured direction and zero offset for each joint.
+    takeover_duration_s: 1.0
+    shadow_mode: true

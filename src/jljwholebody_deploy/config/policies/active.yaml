@@ -1,4 +1,4 @@
 # Select the generated policy profile used by deployment.
 # This file is safe to edit manually; paths are relative to this file.
 schema_version: 1
-active_profile: 2026-09-03_10-54-50/profile.yaml
+active_profile: jljwholebodyv2_2026-10-07_15-23-51/profile.yaml

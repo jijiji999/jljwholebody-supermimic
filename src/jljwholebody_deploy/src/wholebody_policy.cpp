@@ -128,7 +128,8 @@ OnnxPolicyRuntime::OnnxPolicyRuntime(
   const std::string & model_path,
   const std::size_t expected_input_size,
   const std::size_t expected_output_size,
-  const int intra_op_threads)
+  const int intra_op_threads,
+  const std::size_t goal_input_size)
 : env_(ORT_LOGGING_LEVEL_WARNING, "wholebody_policy"),
   memory_info_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault))
 {
@@ -144,19 +145,54 @@ OnnxPolicyRuntime::OnnxPolicyRuntime(
   session_options_.EnableMemPattern();
   session_ = std::make_unique<Ort::Session>(env_, model_path.c_str(), session_options_);
 
-  if (session_->GetInputCount() != 1U || session_->GetOutputCount() != 1U) {
-    throw std::runtime_error("wholebody policy must have exactly one input and one output");
+  const std::size_t input_count = goal_input_size == 0U ? 1U : 2U;
+  if (session_->GetInputCount() != input_count || session_->GetOutputCount() != 1U) {
+    throw std::runtime_error("ONNX policy input/output count does not match the policy contract");
   }
 
-  auto allocated_input_name = session_->GetInputNameAllocated(0U, allocator_);
+  std::size_t observation_index = 0U;
+  if (goal_input_size != 0U) {
+    const auto first_shape = session_->GetInputTypeInfo(0U).GetTensorTypeAndShapeInfo().GetShape();
+    if (first_shape.size() == 2U && first_shape[1] == static_cast<int64_t>(goal_input_size)) {
+      observation_index = 1U;
+    }
+    const std::size_t goal_index = 1U - observation_index;
+    goal_name_ = session_->GetInputNameAllocated(goal_index, allocator_).get();
+    const auto goal_info = session_->GetInputTypeInfo(goal_index);
+    const auto goal_tensor_info = goal_info.GetTensorTypeAndShapeInfo();
+    auto goal_shape = goal_tensor_info.GetShape();
+    if (goal_tensor_info.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT ||
+      goal_shape.size() != 2U || tensor_element_count(goal_shape, goal_name_) != goal_input_size ||
+      goal_shape[0] != 1)
+    {
+      throw std::runtime_error(
+              "ONNX goal must be a batch-one float32 tensor with " +
+              std::to_string(goal_input_size) + " features");
+    }
+    input_names_[1] = goal_name_.c_str();
+    goal_buffer_.resize(goal_input_size);
+    input_tensors_[1] = Ort::Value::CreateTensor<float>(
+      memory_info_, goal_buffer_.data(), goal_buffer_.size(), goal_shape.data(), goal_shape.size());
+  }
+
+  auto allocated_input_name = session_->GetInputNameAllocated(observation_index, allocator_);
   auto allocated_output_name = session_->GetOutputNameAllocated(0U, allocator_);
   input_name_ = allocated_input_name.get();
   output_name_ = allocated_output_name.get();
   input_names_[0] = input_name_.c_str();
   output_names_[0] = output_name_.c_str();
 
-  input_shape_ = session_->GetInputTypeInfo(0U).GetTensorTypeAndShapeInfo().GetShape();
-  output_shape_ = session_->GetOutputTypeInfo(0U).GetTensorTypeAndShapeInfo().GetShape();
+  const auto input_type = session_->GetInputTypeInfo(observation_index);
+  const auto output_type = session_->GetOutputTypeInfo(0U);
+  const auto input_info = input_type.GetTensorTypeAndShapeInfo();
+  const auto output_info = output_type.GetTensorTypeAndShapeInfo();
+  if (input_info.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT ||
+    output_info.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT)
+  {
+    throw std::runtime_error("ONNX policy observation and action tensors must be float32");
+  }
+  input_shape_ = input_info.GetShape();
+  output_shape_ = output_info.GetShape();
   const std::size_t model_input_size = tensor_element_count(input_shape_, input_name_);
   const std::size_t model_output_size = tensor_element_count(output_shape_, output_name_);
   if (model_input_size != expected_input_size) {
@@ -169,18 +205,25 @@ OnnxPolicyRuntime::OnnxPolicyRuntime(
             "ONNX output size mismatch: model=" + std::to_string(model_output_size) +
             ", profile=" + std::to_string(expected_output_size));
   }
+  if (goal_input_size != 0U &&
+    (input_shape_.size() != 2U || input_shape_[0] != 1 ||
+    output_shape_.size() != 2U || output_shape_[0] != 1))
+  {
+    throw std::runtime_error("SuperMimic ONNX observation and action must be batch-one matrices");
+  }
 
   input_buffer_.assign(model_input_size, 0.0F);
   output_buffer_.assign(model_output_size, 0.0F);
-  input_tensor_ = std::make_unique<Ort::Value>(Ort::Value::CreateTensor<float>(
+  input_tensors_[0] = Ort::Value::CreateTensor<float>(
       memory_info_, input_buffer_.data(), input_buffer_.size(),
-      input_shape_.data(), input_shape_.size()));
+      input_shape_.data(), input_shape_.size());
   output_tensor_ = std::make_unique<Ort::Value>(Ort::Value::CreateTensor<float>(
       memory_info_, output_buffer_.data(), output_buffer_.size(),
       output_shape_.data(), output_shape_.size()));
 }
 
-const std::vector<float> & OnnxPolicyRuntime::infer(const std::vector<float> & observation)
+const std::vector<float> & OnnxPolicyRuntime::infer(
+  const std::vector<float> & observation, const std::vector<float> & goal)
 {
   if (observation.size() != input_buffer_.size()) {
     throw std::invalid_argument(
@@ -194,10 +237,17 @@ const std::vector<float> & OnnxPolicyRuntime::infer(const std::vector<float> & o
     throw std::invalid_argument("observation contains NaN or Inf");
   }
 
+  if (goal.size() != goal_buffer_.size() ||
+    !std::all_of(goal.begin(), goal.end(), [](const float value) {return std::isfinite(value);}))
+  {
+    throw std::invalid_argument("invalid ONNX goal input");
+  }
+
   std::copy(observation.begin(), observation.end(), input_buffer_.begin());
+  std::copy(goal.begin(), goal.end(), goal_buffer_.begin());
   session_->Run(
     Ort::RunOptions {nullptr},
-    input_names_.data(), input_tensor_.get(), input_names_.size(),
+    input_names_.data(), input_tensors_.data(), goal_buffer_.empty() ? 1U : 2U,
     output_names_.data(), output_tensor_.get(), output_names_.size());
 
   if (!std::all_of(output_buffer_.begin(), output_buffer_.end(), [](const float value) {

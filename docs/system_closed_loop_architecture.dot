@@ -1,0 +1,143 @@
+digraph JLJWholebodyClosedLoop {
+  graph [
+    rankdir=TB,
+    bgcolor="white",
+    pad="0.25",
+    nodesep="0.36",
+    ranksep="0.72",
+    splines=polyline,
+    fontname="Noto Sans CJK SC",
+    fontsize=16,
+    labelloc="t",
+    label="JLJ A00 全身机器人：训练—策略交付—实机部署闭环架构"
+  ];
+  node [
+    shape=box,
+    style="rounded,filled",
+    fontname="Noto Sans CJK SC",
+    fontsize=10,
+    color="#64748B",
+    fillcolor="#F8FAFC",
+    fontcolor="#0F172A",
+    margin="0.12,0.08"
+  ];
+  edge [
+    fontname="Noto Sans CJK SC",
+    fontsize=9,
+    color="#475569",
+    fontcolor="#334155",
+    arrowsize=0.72,
+    penwidth=1.15
+  ];
+
+  subgraph cluster_training {
+    label="① 仿真训练闭环 · unitree_rl_mjlab";
+    color="#93C5FD";
+    fillcolor="#EFF6FF";
+    style="rounded,filled";
+    penwidth=1.4;
+
+    train_cfg [label="jljwholebody 任务配置\nMJCF + 29 关节/执行器参数\n观测·动作·奖励·终止·课程学习\n质量/摩擦/接触/控制延迟随机化", fillcolor="#DBEAFE"];
+    sim [label="Mjlab + MuJoCo 并行环境\n物理步长 0.005 s\ndecimation=4 → 策略步长 0.02 s", fillcolor="#BFDBFE"];
+    sim_obs [label="Actor 观测\n7 terms × 5 帧历史\n490 维，term-major", fillcolor="#DBEAFE"];
+    actor [label="Actor 策略网络\nMLP 512-256-128, ELU\n观测归一化 → 29 维动作", fillcolor="#DBEAFE"];
+    sim_act [label="关节位置动作\nq* = qdefault + scale × action\nDC Motor PD + 限幅/延迟", fillcolor="#DBEAFE"];
+    reward [label="奖励与终止\n速度跟踪、姿态、步态、足端、\n平滑性、自碰撞、跌倒等", fillcolor="#DBEAFE"];
+    ppo [label="RSL-RL PPO / Actor-Critic\nrollout → GAE → mini-batch 更新", fillcolor="#BFDBFE"];
+    checkpoint [label="训练运行目录\nmodel_*.pt + params/env.yaml\nparams/agent.yaml + policy.onnx", fillcolor="#DBEAFE"];
+
+    train_cfg -> sim [label="构建环境"];
+    sim -> sim_obs [label="状态/传感器"];
+    sim_obs -> actor [label="obs"];
+    actor -> sim_act [label="action"];
+    sim_act -> sim [label="执行并推进物理", constraint=false];
+    sim -> reward [label="next state"];
+    reward -> ppo [label="reward/done"];
+    sim_obs -> ppo [label="rollout", constraint=false];
+    ppo -> actor [label="更新参数", constraint=false];
+    actor -> checkpoint [label="每次保存同步导出"];
+  }
+
+  subgraph cluster_delivery {
+    label="② Sim-to-Real 策略交付与契约闸门";
+    color="#C4B5FD";
+    fillcolor="#F5F3FF";
+    style="rounded,filled";
+    penwidth=1.4;
+
+    prepare [label="prepare_policy_deployment.py\n提取训练 run，生成 profile", fillcolor="#EDE9FE"];
+    validate [label="check_policy_contract.py\n校验 ONNX / env / MJCF / URDF\n维度、关节顺序、参数与 SHA-256", fillcolor="#DDD6FE"];
+    bundle [label="不可变策略 bundle\npolicy.onnx + env.yaml + MJCF 快照\nprofile.yaml + active.yaml", fillcolor="#EDE9FE"];
+
+    checkpoint -> prepare [label="选择训练 run"];
+    prepare -> validate [label="候选 bundle"];
+    validate -> bundle [label="全部通过后激活"];
+  }
+
+  subgraph cluster_deploy {
+    label="③ 实机在线控制闭环 · jljwholebody_deploy";
+    color="#86EFAC";
+    fillcolor="#F0FDF4";
+    style="rounded,filled";
+    penwidth=1.4;
+
+    joy [label="操作者/手柄 /joy\n速度命令 vx, vy, wz\npassive / fixed / loco 切换", fillcolor="#DCFCE7"];
+    imu [label="DM IMU /imu/data\n姿态四元数 + 机身角速度\n安装补偿 + 20 Hz 低通", fillcolor="#DCFCE7"];
+    feedback [label="4 路 CAN 电机反馈\n位置、速度、力矩、状态、时间戳", fillcolor="#DCFCE7"];
+    logical [label="物理电机 → 29 逻辑关节\n直驱映射 + 脚踝/腰部并联正解\n速度/力矩雅可比映射", fillcolor="#BBF7D0"];
+    safety [label="模式机与安全监控\n反馈完整/新鲜、电机使能、\n手柄/IMU 超时、机身倾角 ≤ 50°\n故障立即回 passive", fillcolor="#FDE68A", color="#D97706"];
+    obs [label="50 Hz 策略线程\nωbody(3) + gravity(3) + cmd(3)\n+ phase(2) + q-q0(29) + q̇(29)\n+ prev_action(29)，5 帧 = 490", fillcolor="#BBF7D0"];
+    onnx [label="ONNX Runtime (CPU)\n490 → 29 原始动作", fillcolor="#86EFAC"];
+    decode [label="动作解码与约束\nclip(action, ±5)\nq* = q0 + scale × action\n关节限位 + 接管平滑", fillcolor="#BBF7D0"];
+    command [label="500 Hz 控制线程 / MIT 命令映射\n直驱：电机位置 PD\n并联：fixed 用逆解位置 PD；\nloco 用逻辑 PD 力矩→电机力矩", fillcolor="#86EFAC"];
+    bridge [label="DM Motor Manager\nSocketCAN vcan0…vcan3\nCannelloni / LinkX UDP", fillcolor="#BBF7D0"];
+    robot [label="JLJ A00 全身机器人\n物理电机 + 并联脚踝/腰部\n机器人—地面动力学", fillcolor="#86EFAC"];
+
+    bundle -> onnx [label="加载模型与 profile 契约"];
+    joy -> obs [label="速度命令"];
+    joy -> safety [label="模式/急停意图"];
+    imu -> obs [label="角速度/投影重力"];
+    imu -> safety [label="新鲜度/倾角"];
+    feedback -> logical [label="测量"];
+    logical -> obs [label="q, q̇"];
+    feedback -> safety [label="状态/时间戳"];
+    safety -> command [label="允许 loco 或降级 passive"];
+    obs -> onnx [label="observation"];
+    onnx -> decode [label="29 actions"];
+    decode -> command [label="29 逻辑目标"];
+    logical -> command [label="500 Hz 实际状态"];
+    command -> bridge [label="电机位置/增益/前馈力矩"];
+    bridge -> robot [label="4 路 CAN FD"];
+    robot -> feedback [label="闭环反馈", constraint=false, color="#15803D", penwidth=1.5];
+  }
+
+  subgraph cluster_evaluation {
+    label="④ 实机评估与迭代闭环";
+    color="#FDBA74";
+    fillcolor="#FFF7ED";
+    style="rounded,filled";
+    penwidth=1.4;
+
+    recorder [label="50 Hz Loco 数据记录\n命令、IMU、obs/action、\n逻辑关节实际/目标位置速度力矩", fillcolor="#FFEDD5"];
+    report [label="离线评估报告\njoint_timeseries.csv + summary.json\n交互 HTML / RMSE / 最大误差", fillcolor="#FED7AA"];
+    tuning [label="人工分析与参数回灌\n修正 MJCF/执行器、奖励、\n随机化范围、观测与安全阈值", fillcolor="#FFEDD5"];
+
+    obs -> recorder [
+      label="运行快照：obs/action + actual/target",
+      style=dashed,
+      color="#C2410C",
+      fontcolor="#9A3412",
+      constraint=false
+    ];
+    recorder -> report [label="停止记录后生成"];
+    report -> tuning [label="Sim-vs-Real 偏差"];
+    tuning -> train_cfg [
+      label="下一轮训练（当前为人工离线闭环）",
+      style=dashed,
+      color="#C2410C",
+      fontcolor="#9A3412",
+      penwidth=1.5,
+      constraint=false
+    ];
+  }
+}

@@ -1,0 +1,279 @@
+{
+  "schema_version": 1,
+  "fps": 50,
+  "frame_count": 11909,
+  "joints": [
+    {
+      "name": "right_hip_pitch",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 180.0,
+      "kd": 3.0,
+      "effort_limit": 120.0
+    },
+    {
+      "name": "right_hip_roll",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 180.0,
+      "kd": 3.0,
+      "effort_limit": 120.0
+    },
+    {
+      "name": "right_hip_yaw",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 180.0,
+      "kd": 3.0,
+      "effort_limit": 120.0
+    },
+    {
+      "name": "right_knee",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 220.0,
+      "kd": 4.5,
+      "effort_limit": 120.0
+    },
+    {
+      "name": "right_ankle_pitch",
+      "default_position": 0.0,
+      "lower": -0.6,
+      "upper": 0.35,
+      "kp": 120.0,
+      "kd": 2.5,
+      "effort_limit": 45.0
+    },
+    {
+      "name": "right_ankle_roll",
+      "default_position": 0.0,
+      "lower": -0.2,
+      "upper": 0.2,
+      "kp": 120.0,
+      "kd": 2.5,
+      "effort_limit": 45.0
+    },
+    {
+      "name": "left_hip_pitch",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 180.0,
+      "kd": 3.0,
+      "effort_limit": 120.0
+    },
+    {
+      "name": "left_hip_roll",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 180.0,
+      "kd": 3.0,
+      "effort_limit": 120.0
+    },
+    {
+      "name": "left_hip_yaw",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 180.0,
+      "kd": 3.0,
+      "effort_limit": 120.0
+    },
+    {
+      "name": "left_knee",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 220.0,
+      "kd": 4.5,
+      "effort_limit": 120.0
+    },
+    {
+      "name": "left_ankle_pitch",
+      "default_position": 0.0,
+      "lower": -0.6,
+      "upper": 0.35,
+      "kp": 120.0,
+      "kd": 2.5,
+      "effort_limit": 45.0
+    },
+    {
+      "name": "left_ankle_roll",
+      "default_position": 0.0,
+      "lower": -0.2,
+      "upper": 0.2,
+      "kp": 120.0,
+      "kd": 2.5,
+      "effort_limit": 45.0
+    },
+    {
+      "name": "waist_yaw",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 80.0,
+      "kd": 1.8,
+      "effort_limit": 40.0
+    },
+    {
+      "name": "waist_roll",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 80.0,
+      "kd": 1.8,
+      "effort_limit": 40.0
+    },
+    {
+      "name": "waist_pitch",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 80.0,
+      "kd": 1.8,
+      "effort_limit": 40.0
+    },
+    {
+      "name": "left_shoulder_pitch",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 80.0,
+      "kd": 1.8,
+      "effort_limit": 40.0
+    },
+    {
+      "name": "left_shoulder_roll",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 80.0,
+      "kd": 1.8,
+      "effort_limit": 40.0
+    },
+    {
+      "name": "left_shoulder_yaw",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 80.0,
+      "kd": 1.8,
+      "effort_limit": 40.0
+    },
+    {
+      "name": "left_elbow",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 80.0,
+      "kd": 1.8,
+      "effort_limit": 40.0
+    },
+    {
+      "name": "left_wrist_yaw",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 20.0,
+      "kd": 0.8,
+      "effort_limit": 12.0
+    },
+    {
+      "name": "left_wrist_roll",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 20.0,
+      "kd": 0.8,
+      "effort_limit": 12.0
+    },
+    {
+      "name": "left_wrist_pitch",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 20.0,
+      "kd": 0.8,
+      "effort_limit": 12.0
+    },
+    {
+      "name": "right_shoulder_pitch",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 80.0,
+      "kd": 1.8,
+      "effort_limit": 40.0
+    },
+    {
+      "name": "right_shoulder_roll",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 80.0,
+      "kd": 1.8,
+      "effort_limit": 40.0
+    },
+    {
+      "name": "right_shoulder_yaw",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 80.0,
+      "kd": 1.8,
+      "effort_limit": 40.0
+    },
+    {
+      "name": "right_elbow",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 80.0,
+      "kd": 1.8,
+      "effort_limit": 40.0
+    },
+    {
+      "name": "right_wrist_yaw",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 20.0,
+      "kd": 0.8,
+      "effort_limit": 12.0
+    },
+    {
+      "name": "right_wrist_roll",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 20.0,
+      "kd": 0.8,
+      "effort_limit": 12.0
+    },
+    {
+      "name": "right_wrist_pitch",
+      "default_position": 0.0,
+      "lower": -1.57,
+      "upper": 1.57,
+      "kp": 20.0,
+      "kd": 0.8,
+      "effort_limit": 12.0
+    }
+  ],
+  "action_scale": 0.18,
+  "raw_action_clip": 5.0,
+  "source_sha256": {
+    "assets/policy.onnx": "8bd7936da607f010157325d68643a5cb530914466315d5c180fc3f417feb8b2e",
+    "assets/policy.onnx.data": "f0dbfe1ea76c0439e0e31242ef0d41475913d4c7e06c66f0448695f5be6af495",
+    "assets/default_joint_pos.npy": "2483aa4e35178c7c635db0de5f3d81005696a678de1d0b046b6389062c647a34",
+    "assets/walk2_subject3.npz": "ab7796a7deee3626d1eb5fdb7c31c7ffdeb0b2034381cb1f9ea5e1203390b38f",
+    "assets/walk2_subject3_goals.npz": "a4efc45df70a8754a3967746a41ca5041ba19d9847651cdcd9e6bf4a17c8173c",
+    "assets/A00_robot_mujoco_actual_used.xml": "6c3ce9b800bc7229cd1187df7bebff0553ad5b461b5b6e79578de4e9057557c5",
+    "assets/A00_robot_mujoco_supermimic.xml": "e3d82a26eb85417f3d43af82fc249b851b2511ee3f0b47ff13bba0663171999a"
+  }
+}

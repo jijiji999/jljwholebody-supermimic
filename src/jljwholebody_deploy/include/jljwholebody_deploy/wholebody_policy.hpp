@@ -53,9 +53,11 @@ public:
     const std::string & model_path,
     std::size_t expected_input_size,
     std::size_t expected_output_size,
-    int intra_op_threads = 1);
+    int intra_op_threads = 1,
+    std::size_t goal_input_size = 0U);
 
-  const std::vector<float> & infer(const std::vector<float> & observation);
+  const std::vector<float> & infer(
+    const std::vector<float> & observation, const std::vector<float> & goal = {});
   std::size_t input_size() const;
   std::size_t output_size() const;
   const std::string & input_name() const;
@@ -73,13 +75,15 @@ private:
   Ort::MemoryInfo memory_info_;
   std::string input_name_;
   std::string output_name_;
-  std::array<const char *, 1> input_names_;
+  std::string goal_name_;
+  std::array<const char *, 2> input_names_ {};
   std::array<const char *, 1> output_names_;
   std::vector<int64_t> input_shape_;
   std::vector<int64_t> output_shape_;
   std::vector<float> input_buffer_;
   std::vector<float> output_buffer_;
-  std::unique_ptr<Ort::Value> input_tensor_;
+  std::vector<float> goal_buffer_;
+  std::array<Ort::Value, 2> input_tensors_ {Ort::Value {nullptr}, Ort::Value {nullptr}};
   std::unique_ptr<Ort::Value> output_tensor_;
 };
 
